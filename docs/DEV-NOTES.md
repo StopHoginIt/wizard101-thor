@@ -45,3 +45,13 @@ Offline test hook: `W101QUICK_TEST_FAKE_LOGIN=1` skips the network login and sta
 
 - Never commit account data: usernames, passwords, tokens, `config.json`, game logs (they contain account and character IDs), screenshots of the account, or device serials.
 - Keep `docs/FINDINGS.md` up to date with anything learned the hard way.
+
+## Making a release
+
+Releases are published by CI from `main`. To cut one:
+
+1. Bump `VERSION` (e.g. `0.2.0`).
+2. Optionally add `release-notes/v0.2.0.md`; otherwise GitHub generates notes.
+3. Commit and push to `main`. The build job creates tag `v0.2.0` and a release with the arm64/amd64 launchers, the controller profile, the companion page and `laptop-tools.zip`.
+
+Pushing to `main` without changing `VERSION` just builds; it doesn't re-release.
