@@ -1,0 +1,497 @@
+﻿diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 6770f83..b440106 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -169,6 +169,9 @@ android {
+             isMinifyEnabled = false
+             isShrinkResources = false
+             signingConfig = signingConfigs.getByName("debug")
++            // Wizard101 Thor fork: own package so it installs beside stock GameNative.
++            applicationIdSuffix = ".w101"
++            versionNameSuffix = "-w101"
+         }
+         release {
+             isMinifyEnabled = true
+diff --git a/app/src/main/cpp/lsfg-vk-android b/app/src/main/cpp/lsfg-vk-android
+--- a/app/src/main/cpp/lsfg-vk-android
++++ b/app/src/main/cpp/lsfg-vk-android
+@@ -1 +1 @@
+-Subproject commit feb7899a6d0f419e27bf47102b6df8ff17e50122
++Subproject commit feb7899a6d0f419e27bf47102b6df8ff17e50122-dirty
+diff --git a/app/src/main/java/app/gamenative/display/GamescopePayload.kt b/app/src/main/java/app/gamenative/display/GamescopePayload.kt
+index 015580d..1e0fbb6 100644
+--- a/app/src/main/java/app/gamenative/display/GamescopePayload.kt
++++ b/app/src/main/java/app/gamenative/display/GamescopePayload.kt
+@@ -1,87 +1,148 @@
+-package app.gamenative.display
+-
+-import android.content.Context
+-import app.gamenative.service.SteamService
+-import app.gamenative.utils.AssetUtils
+-import com.winlator.core.TarCompressorUtils
+-import kotlinx.coroutines.Dispatchers
+-import kotlinx.coroutines.withContext
+-import timber.log.Timber
+-import java.io.File
+-
+-/** Versioned gamescope payload (gamescope, XWayland, scaling clients), fetched on the first gamescope launch. */
+-object GamescopePayload {
+-    const val VERSION = "20261105.4"
+-    const val ARCHIVE = "gamescope-gamenative-$VERSION.tzst"
+-    private const val STAMP = ".payload.version"
+-
+-    fun directory(filesDir: File): File = GamescopeSettings.gamescopeDir(filesDir)
+-
+-    fun isReady(filesDir: File): Boolean {
+-        val dir = directory(filesDir)
+-        return File(dir, "bin").isDirectory &&
+-            runCatching { File(dir, STAMP).readText().trim() }.getOrNull() == VERSION
+-    }
+-
+-    suspend fun ensure(context: Context, onProgress: (Float) -> Unit = {}): File = withContext(Dispatchers.IO) {
+-        val filesDir = context.filesDir
+-        if (isReady(filesDir)) return@withContext directory(filesDir)
+-        val archive = File(filesDir, ARCHIVE)
+-        if (!archive.isFile || archive.length() == 0L) {
+-            archive.delete()
+-            // A payload shipped inside the APK wins over the download: it is the
+-            // build that was exercised with this app, and it needs no network.
+-            // Only when the asset is absent does the published archive get
+-            // fetched.
+-            if (copyFromAssets(context, archive)) {
+-                onProgress(1.0f)
+-            } else {
+-                try {
+-                    SteamService.fetchFileWithFallback(ARCHIVE, archive, context, onProgress)
+-                } catch (e: Exception) {
+-                    archive.delete()
+-                    throw e
+-                }
+-            }
+-        }
+-        install(archive, filesDir)
+-    }
+-
+-    /** Whether this APK carries the payload, and if so, copy it out to [dest]. */
+-    private fun copyFromAssets(context: Context, dest: File): Boolean {
+-        val assets = context.assets
+-        val present = runCatching { assets.open(ARCHIVE).close() }.isSuccess
+-        if (!present) return false
+-        return runCatching {
+-            assets.open(ARCHIVE).use { input -> dest.outputStream().use { output -> input.copyTo(output) } }
+-        }
+-            .onFailure {
+-                Timber.w(it, "Failed to copy $ARCHIVE from assets")
+-                dest.delete()
+-            }
+-            .isSuccess
+-    }
+-
+-    @Synchronized
+-    internal fun install(archive: File, filesDir: File): File {
+-        val target = directory(filesDir)
+-        if (isReady(filesDir)) return target
+-        val tempDir = File(target.parentFile, "${target.name}.tmp")
+-        AssetUtils.deleteTree(tempDir)
+-        tempDir.mkdirs()
+-        if (!TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, archive, tempDir)) {
+-            AssetUtils.deleteTree(tempDir)
+-            archive.delete()
+-            error("Failed to extract $ARCHIVE")
+-        }
+-        File(tempDir, STAMP).writeText(VERSION)
+-        AssetUtils.deleteTree(target)
+-        if (!tempDir.renameTo(target)) {
+-            AssetUtils.deleteTree(tempDir)
+-            error("Failed to promote $ARCHIVE")
+-        }
+-        archive.delete()
+-        Timber.i("Gamescope payload $VERSION ready at ${target.absolutePath}")
+-        return target
+-    }
+-}
++package app.gamenative.display
++
++import android.content.Context
++import app.gamenative.service.SteamService
++import app.gamenative.utils.AssetUtils
++import com.winlator.core.TarCompressorUtils
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import timber.log.Timber
++import java.io.File
++
++/** Versioned gamescope payload (gamescope, XWayland, scaling clients), fetched on the first gamescope launch. */
++object GamescopePayload {
++    const val VERSION = "20261105.4"
++    const val ARCHIVE = "gamescope-gamenative-$VERSION.tzst"
++    private const val STAMP = ".payload.version"
++
++    fun directory(filesDir: File): File = GamescopeSettings.gamescopeDir(filesDir)
++
++    fun isReady(filesDir: File): Boolean {
++        val dir = directory(filesDir)
++        return File(dir, "bin").isDirectory &&
++            runCatching { File(dir, STAMP).readText().trim() }.getOrNull() == VERSION
++    }
++
++    suspend fun ensure(context: Context, onProgress: (Float) -> Unit = {}): File = withContext(Dispatchers.IO) {
++        val filesDir = context.filesDir
++        if (isReady(filesDir)) return@withContext directory(filesDir).also { relocate(filesDir) }
++        val archive = File(filesDir, ARCHIVE)
++        if (!archive.isFile || archive.length() == 0L) {
++            archive.delete()
++            // A payload shipped inside the APK wins over the download: it is the
++            // build that was exercised with this app, and it needs no network.
++            // Only when the asset is absent does the published archive get
++            // fetched.
++            if (copyFromAssets(context, archive)) {
++                onProgress(1.0f)
++            } else {
++                try {
++                    SteamService.fetchFileWithFallback(ARCHIVE, archive, context, onProgress)
++                } catch (e: Exception) {
++                    archive.delete()
++                    throw e
++                }
++            }
++        }
++        install(archive, filesDir).also { relocate(filesDir) }
++    }
++
++    private const val STOCK_PREFIX = "/data/user/0/app.gamenative/files/gamescope"
++    private const val RELOCATED_STAMP = ".payload.relocated"
++
++    /**
++     * The payload's binaries (Xwayland, xkbcomp, gamescope) have the stock package's
++     * install prefix compiled in. Under any other application id those paths do not
++     * exist, so Xwayland cannot compile its keymap and the session dies. Rewrite the
++     * prefix in place to a same-length path that resolves into this package: a short
++     * "gs" symlink next to the payload, padded with extra slashes so no bytes move.
++     */
++    @Synchronized
++    internal fun relocate(filesDir: File) {
++        val pkg = app.gamenative.BuildConfig.APPLICATION_ID
++        if (pkg == "app.gamenative") return
++        val target = directory(filesDir)
++        val stamp = File(target, RELOCATED_STAMP)
++        if (runCatching { stamp.readText().trim() }.getOrNull() == pkg) return
++
++        val base = "/data/data/$pkg/files"
++        val pad = STOCK_PREFIX.length - base.length - "gs".length
++        if (pad < 1) {
++            Timber.e("Gamescope payload cannot be relocated: package id $pkg is too long")
++            return
++        }
++        val newPrefix = base + "/".repeat(pad) + "gs"
++        val link = File(filesDir, "gs")
++        runCatching {
++            if (!link.exists()) android.system.Os.symlink(target.name, link.path)
++        }.onFailure { Timber.e(it, "Failed to create gamescope alias ${link.path}") }
++
++        val old = STOCK_PREFIX.toByteArray(Charsets.US_ASCII)
++        val new = newPrefix.toByteArray(Charsets.US_ASCII)
++        var patched = 0
++        File(target, "bin").listFiles()?.filter { it.isFile }?.forEach { file ->
++            val bytes = file.readBytes()
++            var hits = 0
++            var i = 0
++            while (i <= bytes.size - old.size) {
++                var match = true
++                for (j in old.indices) {
++                    if (bytes[i + j] != old[j]) { match = false; break }
++                }
++                if (match) {
++                    System.arraycopy(new, 0, bytes, i, new.size)
++                    hits++
++                    i += old.size
++                } else {
++                    i++
++                }
++            }
++            if (hits > 0) {
++                val executable = file.canExecute()
++                file.writeBytes(bytes)
++                if (executable) file.setExecutable(true, false)
++                patched += hits
++            }
++        }
++        stamp.writeText(pkg)
++        Timber.i("Gamescope payload relocated for $pkg ($patched path(s) rewritten to $newPrefix)")
++    }
++
++    /** Whether this APK carries the payload, and if so, copy it out to [dest]. */
++    private fun copyFromAssets(context: Context, dest: File): Boolean {
++        val assets = context.assets
++        val present = runCatching { assets.open(ARCHIVE).close() }.isSuccess
++        if (!present) return false
++        return runCatching {
++            assets.open(ARCHIVE).use { input -> dest.outputStream().use { output -> input.copyTo(output) } }
++        }
++            .onFailure {
++                Timber.w(it, "Failed to copy $ARCHIVE from assets")
++                dest.delete()
++            }
++            .isSuccess
++    }
++
++    @Synchronized
++    internal fun install(archive: File, filesDir: File): File {
++        val target = directory(filesDir)
++        if (isReady(filesDir)) return target
++        val tempDir = File(target.parentFile, "${target.name}.tmp")
++        AssetUtils.deleteTree(tempDir)
++        tempDir.mkdirs()
++        if (!TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, archive, tempDir)) {
++            AssetUtils.deleteTree(tempDir)
++            archive.delete()
++            error("Failed to extract $ARCHIVE")
++        }
++        File(tempDir, STAMP).writeText(VERSION)
++        AssetUtils.deleteTree(target)
++        if (!tempDir.renameTo(target)) {
++            AssetUtils.deleteTree(tempDir)
++            error("Failed to promote $ARCHIVE")
++        }
++        archive.delete()
++        Timber.i("Gamescope payload $VERSION ready at ${target.absolutePath}")
++        return target
++    }
++}
+diff --git a/app/src/main/java/app/gamenative/externaldisplay/ExternalDisplayInputController.kt b/app/src/main/java/app/gamenative/externaldisplay/ExternalDisplayInputController.kt
+index 4a3baa5..6631536 100644
+--- a/app/src/main/java/app/gamenative/externaldisplay/ExternalDisplayInputController.kt
++++ b/app/src/main/java/app/gamenative/externaldisplay/ExternalDisplayInputController.kt
+@@ -26,13 +26,14 @@ class ExternalDisplayInputController(
+     private val xServer: XServer,
+     private val touchpadViewProvider: () -> TouchpadView?,
+ ) {
+-    enum class Mode { OFF, TOUCHPAD, KEYBOARD, HYBRID }
++    enum class Mode { OFF, TOUCHPAD, KEYBOARD, HYBRID, WIZARD101 }
+ 
+     companion object {
+         fun fromConfig(value: String?): Mode = when (value?.lowercase()) {
+             Container.EXTERNAL_DISPLAY_MODE_TOUCHPAD -> Mode.TOUCHPAD
+             Container.EXTERNAL_DISPLAY_MODE_KEYBOARD -> Mode.KEYBOARD
+             Container.EXTERNAL_DISPLAY_MODE_HYBRID -> Mode.HYBRID
++            Container.EXTERNAL_DISPLAY_MODE_WIZARD101 -> Mode.WIZARD101
+             else -> Mode.OFF
+         }
+     }
+@@ -201,6 +202,15 @@ private class ExternalInputPresentation(
+                 )
+                 setContentView(hybrid)
+             }
++            ExternalDisplayInputController.Mode.WIZARD101 -> {
++                setContentView(
++                    Wizard101ShortcutPanelView(
++                        context = context,
++                        xServer = xServer,
++                        touchpadViewProvider = touchpadViewProvider,
++                    ),
++                )
++            }
+             else -> {
+                 setContentView(FrameLayout(context))
+             }
+diff --git a/app/src/main/java/app/gamenative/gamefixes/GameFixesRegistry.kt b/app/src/main/java/app/gamenative/gamefixes/GameFixesRegistry.kt
+index a18c5c6..3a5d8ad 100644
+--- a/app/src/main/java/app/gamenative/gamefixes/GameFixesRegistry.kt
++++ b/app/src/main/java/app/gamenative/gamefixes/GameFixesRegistry.kt
+@@ -58,6 +58,8 @@ object GameFixesRegistry {
+         EPIC_Fix_864c7bc2c2394f7dbd1b534aa068ff56,
+         EPIC_Fix_7f6bb22e14044be880ba254f683cd928,
+         CUSTOM_GAME_Fix_WowB_ARM64,
++        CUSTOM_GAME_Fix_Wizard101_Launcher,
++        CUSTOM_GAME_Fix_Wizard101_Client,
+     ).associateBy { it.gameSource to it.gameId }
+ 
+     private var fixesProvider: () -> Map<Pair<GameSource, String>, GameFix> = { fixes }
+diff --git a/app/src/main/java/app/gamenative/ui/component/dialog/ContainerConfigDialog.kt b/app/src/main/java/app/gamenative/ui/component/dialog/ContainerConfigDialog.kt
+index 6aad712..af66f38 100644
+--- a/app/src/main/java/app/gamenative/ui/component/dialog/ContainerConfigDialog.kt
++++ b/app/src/main/java/app/gamenative/ui/component/dialog/ContainerConfigDialog.kt
+@@ -245,6 +245,7 @@ private fun rememberContainerConfigDialogStaticData(): ContainerConfigDialogStat
+             stringResource(R.string.external_display_mode_touchpad),
+             stringResource(R.string.external_display_mode_keyboard),
+             stringResource(R.string.external_display_mode_hybrid),
++            stringResource(R.string.external_display_mode_wizard101),
+         ),
+         winCompOpts = stringArrayResource(R.array.win_component_entries).toList(),
+         box64Versions = stringArrayResource(R.array.box64_version_entries).toList(),
+@@ -963,6 +964,7 @@ fun ContainerConfigDialog(
+                 Container.EXTERNAL_DISPLAY_MODE_TOUCHPAD -> 1
+                 Container.EXTERNAL_DISPLAY_MODE_KEYBOARD -> 2
+                 Container.EXTERNAL_DISPLAY_MODE_HYBRID -> 3
++                Container.EXTERNAL_DISPLAY_MODE_WIZARD101 -> 4
+                 else -> 0
+             }
+             mutableIntStateOf(index)
+diff --git a/app/src/main/java/app/gamenative/ui/component/dialog/ControllerTab.kt b/app/src/main/java/app/gamenative/ui/component/dialog/ControllerTab.kt
+index 4bdbce1..5e4fb2e 100644
+--- a/app/src/main/java/app/gamenative/ui/component/dialog/ControllerTab.kt
++++ b/app/src/main/java/app/gamenative/ui/component/dialog/ControllerTab.kt
+@@ -104,6 +104,7 @@ fun ControllerTabContent(state: ContainerConfigState, default: Boolean) {
+                         1 -> Container.EXTERNAL_DISPLAY_MODE_TOUCHPAD
+                         2 -> Container.EXTERNAL_DISPLAY_MODE_KEYBOARD
+                         3 -> Container.EXTERNAL_DISPLAY_MODE_HYBRID
++                        4 -> Container.EXTERNAL_DISPLAY_MODE_WIZARD101
+                         else -> Container.EXTERNAL_DISPLAY_MODE_OFF
+                     },
+                 )
+diff --git a/app/src/main/java/app/gamenative/utils/PerfSampler.kt b/app/src/main/java/app/gamenative/utils/PerfSampler.kt
+index 425b3fa..f5f2d20 100644
+--- a/app/src/main/java/app/gamenative/utils/PerfSampler.kt
++++ b/app/src/main/java/app/gamenative/utils/PerfSampler.kt
+@@ -1104,7 +1104,7 @@ object PerfSampler {
+             return (
+                 entries.firstOrNull { it.first == "A" }
+                     ?: entries.firstOrNull { (_, path) ->
+-                        !path.endsWith("/Download") && !path.endsWith("app.gamenative/storage")
++                        !path.endsWith("/Download") && !path.endsWith(app.gamenative.BuildConfig.APPLICATION_ID + "/storage")
+                     }
+                 )?.second
+         }
+diff --git a/app/src/main/java/com/winlator/container/Container.java b/app/src/main/java/com/winlator/container/Container.java
+index 8f464fe..56afcd5 100644
+--- a/app/src/main/java/com/winlator/container/Container.java
++++ b/app/src/main/java/com/winlator/container/Container.java
+@@ -36,6 +36,7 @@ public class Container {
+     public static final String EXTERNAL_DISPLAY_MODE_TOUCHPAD = "touchpad";
+     public static final String EXTERNAL_DISPLAY_MODE_KEYBOARD = "keyboard";
+     public static final String EXTERNAL_DISPLAY_MODE_HYBRID = "hybrid";
++    public static final String EXTERNAL_DISPLAY_MODE_WIZARD101 = "wizard101";
+     public static final String DEFAULT_EXTERNAL_DISPLAY_MODE = EXTERNAL_DISPLAY_MODE_OFF;
+ 
+     public static final String DEFAULT_ENV_VARS = "WRAPPER_MAX_IMAGE_COUNT=0 ZINK_DESCRIPTORS=lazy ZINK_DEBUG=compact MESA_SHADER_CACHE_DISABLE=false MESA_SHADER_CACHE_MAX_SIZE=512MB mesa_glthread=true WINEESYNC=1 MESA_VK_WSI_PRESENT_MODE=mailbox TU_DEBUG=noconform VKD3D_SHADER_MODEL=6_0 PULSE_LATENCY_MSEC=144";
+@@ -64,14 +65,14 @@ public class Container {
+             "vcrun2005", "vcrun2008", "vcrun2012", "vcrun2013", "vcrun2022", "xaudio", "physx")));
+     public static final String FALLBACK_WINCOMPONENTS = "direct3d=1,directsound=1,directinput8=0,directinput=0,directmusic=1,directshow=1,directplay=1,vcrun2010=1,wmdecoder=1,opengl=0";
+     public static final String[] MEDIACONV_ENV_VARS = {
+-            "MEDIACONV_AUDIO_DUMP_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/audio.dmp",
+-            "MEDIACONV_VIDEO_DUMP_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/video.dmp",
+-            "MEDIACONV_VIDEO_TRANSCODED_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/transcoded.mkv",
+-            "MEDIACONV_AUDIO_TRANSCODED_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/transcoded.wav",
+-            "MEDIACONV_BLANK_AUDIO_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/blank.wav",
+-            "MEDIACONV_BLANK_VIDEO_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/blank.mkv",
++            "MEDIACONV_AUDIO_DUMP_FILE=/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files/imagefs/home/xuser/audio.dmp",
++            "MEDIACONV_VIDEO_DUMP_FILE=/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files/imagefs/home/xuser/video.dmp",
++            "MEDIACONV_VIDEO_TRANSCODED_FILE=/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files/imagefs/home/xuser/transcoded.mkv",
++            "MEDIACONV_AUDIO_TRANSCODED_FILE=/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files/imagefs/home/xuser/transcoded.wav",
++            "MEDIACONV_BLANK_AUDIO_FILE=/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files/imagefs/home/xuser/blank.wav",
++            "MEDIACONV_BLANK_VIDEO_FILE=/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files/imagefs/home/xuser/blank.mkv",
+     };
+-    public static final String DEFAULT_DRIVES = "D:"+Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)+"E:/data/data/app.gamenative/storage";
++    public static final String DEFAULT_DRIVES = "D:"+Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)+"E:/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/storage";
+     public static final String DEFAULT_VARIANT = DefaultVersion.VARIANT;
+     public static final String DEFAULT_WINE_VERSION = DefaultVersion.WINE_VERSION;
+     public static final byte STARTUP_SELECTION_NORMAL = 0;
+diff --git a/app/src/main/java/com/winlator/core/DXVKHelper.java b/app/src/main/java/com/winlator/core/DXVKHelper.java
+index fc164b4..99c24c1 100644
+--- a/app/src/main/java/com/winlator/core/DXVKHelper.java
++++ b/app/src/main/java/com/winlator/core/DXVKHelper.java
+@@ -17,7 +17,7 @@ public class DXVKHelper {
+ 
+     public static void setEnvVars(Context context, KeyValueSet config, EnvVars envVars) {
+         ImageFs imageFs = ImageFs.find(context);
+-        envVars.put("DXVK_STATE_CACHE_PATH", "/data/data/app.gamenative/files/imagefs"+ImageFs.CACHE_PATH);
++        envVars.put("DXVK_STATE_CACHE_PATH", "/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files/imagefs"+ImageFs.CACHE_PATH);
+         envVars.put("DXVK_LOG_LEVEL", "none");
+ 
+         File rootDir = ImageFs.find(context).getRootDir();
+diff --git a/app/src/main/java/com/winlator/core/WineUtils.java b/app/src/main/java/com/winlator/core/WineUtils.java
+index d461974..06e9ef9 100644
+--- a/app/src/main/java/com/winlator/core/WineUtils.java
++++ b/app/src/main/java/com/winlator/core/WineUtils.java
+@@ -46,7 +46,7 @@ public abstract class WineUtils {
+                 missingDrives += "D:" + android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+             }
+             if (!currentDrives.contains("E:")) {
+-                missingDrives += "E:/data/data/app.gamenative/storage";
++                missingDrives += "E:/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/storage";
+             }
+             String updatedDrives = missingDrives + currentDrives;
+             container.setDrives(updatedDrives);
+@@ -58,7 +58,7 @@ public abstract class WineUtils {
+         for (String[] drive : container.drivesIterator()) {
+             File linkTarget = new File(drive[1]);
+             String path = linkTarget.getAbsolutePath();
+-            if (!linkTarget.isDirectory() && path.endsWith("/app.gamenative/storage")) {
++            if (!linkTarget.isDirectory() && path.endsWith("/" + app.gamenative.BuildConfig.APPLICATION_ID + "/storage")) {
+                 linkTarget.mkdirs();
+                 FileUtils.chmod(linkTarget, 0771);
+             }
+@@ -76,7 +76,7 @@ public abstract class WineUtils {
+ 
+         // Create Steam symlink if we found the game directory
+         if (gameDirectoryPath != null) {
+-            // Extract game name from path like "/data/data/app.gamenative/Steam/steamapps/common/GameName"
++            // Extract game name from path like "/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/Steam/steamapps/common/GameName"
+             String gameName = new File(gameDirectoryPath).getName();
+ 
+             // Create the Steam directory structure in C: drive
+diff --git a/app/src/main/java/com/winlator/winhandler/WinHandler.java b/app/src/main/java/com/winlator/winhandler/WinHandler.java
+index a344760..7c1dcdc 100644
+--- a/app/src/main/java/com/winlator/winhandler/WinHandler.java
++++ b/app/src/main/java/com/winlator/winhandler/WinHandler.java
+@@ -265,6 +265,13 @@ public class WinHandler {
+     }
+ 
+     static {
++        // evshim falls back to the stock package's data dir unless told otherwise.
++        try {
++            android.system.Os.setenv("EVSHIM_BASE_PATH",
++                    "/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files", true);
++        } catch (Exception e) {
++            Log.w("WinHandler", "Could not set EVSHIM_BASE_PATH", e);
++        }
+         System.loadLibrary("evshim");
+     }
+ 
+diff --git a/app/src/main/java/com/winlator/xenvironment/components/BionicProgramLauncherComponent.java b/app/src/main/java/com/winlator/xenvironment/components/BionicProgramLauncherComponent.java
+index 6a6e625..6db6529 100644
+--- a/app/src/main/java/com/winlator/xenvironment/components/BionicProgramLauncherComponent.java
++++ b/app/src/main/java/com/winlator/xenvironment/components/BionicProgramLauncherComponent.java
+@@ -244,10 +244,10 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
+             String memPath;
+             if (i == 0) {
+                 // Player 1 uses the original, non-numbered path that is known to work.
+-                memPath = "/data/data/app.gamenative/files/imagefs/tmp/gamepad.mem";
++                memPath = "/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files/imagefs/tmp/gamepad.mem";
+             } else {
+                 // Players 2, 3, 4 use a 1-based index.
+-                memPath = "/data/data/app.gamenative/files/imagefs/tmp/gamepad" + i + ".mem";
++                memPath = "/data/data/" + app.gamenative.BuildConfig.APPLICATION_ID + "/files/imagefs/tmp/gamepad" + i + ".mem";
+             }
+ 
+             File memFile = new File(memPath);
+@@ -283,6 +283,9 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
+ 
+         // Use the ControllerManager's dynamic count for the environment variable
+         envVars.put("EVSHIM_MAX_PLAYERS", String.valueOf(MAX_PLAYERS));
++        // The prebuilt shims default to the stock package's data dir; point them at this build's.
++        envVars.put("EVSHIM_BASE_PATH", "/data/data/" + BuildConfig.APPLICATION_ID + "/files");
++        envVars.put("WINEMU_HOST_PKG", BuildConfig.APPLICATION_ID);
+         if (true) {
+             envVars.put("EVSHIM_SHM_ID", 1);
+         }
+@@ -1066,6 +1069,7 @@ public class BionicProgramLauncherComponent extends GuestProgramLauncherComponen
+         File rootDir = imageFs.getRootDir();
+         EnvVars envVars = new EnvVars();
+         addBox64EnvVars(envVars, false);
++        envVars.put("WINEMU_HOST_PKG", BuildConfig.APPLICATION_ID);
+ 
+         envVars.put("HOME", imageFs.home_path);
+         envVars.put("USER", ImageFs.USER);
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 39e34d2..5d3fa74 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -1145,6 +1145,7 @@
+     <string name="external_display_mode_touchpad">Use as touchpad surface</string>
+     <string name="external_display_mode_keyboard">Use as full keyboard</string>
+     <string name="external_display_mode_hybrid">Hybrid (touchpad + keyboard button)</string>
++    <string name="external_display_mode_wizard101">Wizard101 (touchpad + shortcut buttons)</string>
+     <string name="external_display_swap">Show Game on External Display</string>
+     <string name="external_display_swap_subtitle">Swap screens so the game renders on the external display and this device becomes the controller surface</string>
+     <string name="start_with_controls_hidden">Start With On-Screen Controls Hidden</string>

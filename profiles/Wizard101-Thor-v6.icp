@@ -1,0 +1,203 @@
+{
+  "schemaVersion": 1,
+  "id": 0,
+  "name": "Wizard101 (AYN Thor) v6",
+  "includedSections": [
+    "physicalController",
+    "radialMenu"
+  ],
+  "cursorSpeed": 1.5,
+  "controllers": [
+    {
+      "id": "*",
+      "name": "Wildcard Controller",
+      "controllerBindings": [
+        {
+          "keyCode": -4,
+          "binding": "KEY_W"
+        },
+        {
+          "keyCode": -3,
+          "binding": "KEY_S"
+        },
+        {
+          "keyCode": -1,
+          "binding": "KEY_A"
+        },
+        {
+          "keyCode": -2,
+          "binding": "KEY_D"
+        },
+        {
+          "keyCode": -8,
+          "binding": "MOUSE_MOVE_UP"
+        },
+        {
+          "keyCode": -7,
+          "binding": "MOUSE_MOVE_DOWN"
+        },
+        {
+          "keyCode": -5,
+          "binding": "MOUSE_MOVE_LEFT"
+        },
+        {
+          "keyCode": -6,
+          "binding": "MOUSE_MOVE_RIGHT"
+        },
+        {
+          "keyCode": 105,
+          "binding": "MOUSE_LEFT_BUTTON"
+        },
+        {
+          "keyCode": 104,
+          "binding": "MOUSE_RIGHT_BUTTON"
+        },
+        {
+          "keyCode": 96,
+          "binding": "KEY_X"
+        },
+        {
+          "keyCode": 97,
+          "binding": "KEY_ESC"
+        },
+        {
+          "keyCode": 99,
+          "binding": "KEY_SPACE"
+        },
+        {
+          "keyCode": 100,
+          "binding": "SHOW_KEYBOARD"
+        },
+        {
+          "keyCode": 102,
+          "binding": "MOUSE_SCROLL_UP"
+        },
+        {
+          "keyCode": 103,
+          "binding": "MOUSE_SCROLL_DOWN"
+        },
+        {
+          "keyCode": 106,
+          "binding": "KEY_CTRL_L",
+          "bindings": [
+            "KEY_CTRL_L",
+            "KEY_R"
+          ]
+        },
+        {
+          "keyCode": 107,
+          "binding": "KEY_CTRL_L",
+          "bindings": [
+            "KEY_CTRL_L",
+            "KEY_SHIFT_L",
+            "KEY_Q"
+          ]
+        },
+        {
+          "keyCode": 108,
+          "binding": "KEY_ESC"
+        },
+        {
+          "keyCode": 109,
+          "binding": "OPEN_RADIAL_MENU"
+        },
+        {
+          "keyCode": 19,
+          "binding": "KEY_M"
+        },
+        {
+          "keyCode": 20,
+          "binding": "KEY_Q"
+        },
+        {
+          "keyCode": 21,
+          "binding": "KEY_P"
+        },
+        {
+          "keyCode": 22,
+          "binding": "KEY_B"
+        }
+      ]
+    }
+  ],
+  "radialMenus": [
+    {
+      "id": "default",
+      "name": "Wizard101",
+      "slots": [
+        {
+          "label": "Character",
+          "binding": "KEY_C"
+        },
+        {
+          "label": "Friends",
+          "binding": "KEY_F"
+        },
+        {
+          "label": "Pets",
+          "binding": "KEY_I"
+        },
+        {
+          "label": "Use Potion",
+          "binding": "KEY_CTRL_L",
+          "bindings": [
+            "KEY_CTRL_L",
+            "KEY_O"
+          ]
+        },
+        {
+          "label": "Chat",
+          "binding": "KEY_ENTER",
+          "bindings": [
+            "KEY_ENTER",
+            "SHOW_KEYBOARD"
+          ]
+        },
+        {
+          "label": "World Map",
+          "binding": "KEY_SHIFT_L",
+          "bindings": [
+            "KEY_SHIFT_L",
+            "KEY_M"
+          ]
+        },
+        {
+          "label": "Go Home",
+          "binding": "KEY_HOME"
+        },
+        {
+          "label": "Common Area",
+          "binding": "KEY_END"
+        },
+        {
+          "label": "Set Marker",
+          "binding": "KEY_PG_DOWN"
+        },
+        {
+          "label": "Recall Marker",
+          "binding": "KEY_PG_UP"
+        },
+        {
+          "label": "Swap Deck",
+          "binding": "KEY_CTRL_L",
+          "bindings": [
+            "KEY_CTRL_L",
+            "KEY_K"
+          ]
+        },
+        {
+          "label": "Window <> Full",
+          "binding": "ALT_ENTER"
+        }
+      ]
+    }
+  ],
+  "leftStickDeadzone": 0.3,
+  "rightStickDeadzone": 0.1,
+  "leftStickSensitivity": 0.8,
+  "rightStickSensitivity": 1.2,
+  "leftStickDeadzoneMode": "circular",
+  "rightStickDeadzoneMode": "circular",
+  "leftStickDigitalMode": "eight_way",
+  "rightStickDigitalMode": "unrestricted"
+}

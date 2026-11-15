@@ -1,0 +1,5 @@
+# One adb shell command per line; "sleep N" waits N seconds on the PC. Run with Run-Thor.cmd.
+# Start Wizard101 in GameNative directly (custom game appId from your container; see docs/SETUP.md):
+# am start -p app.gamenative -a android.intent.action.VIEW -d 'gamenative://run?appid=YOUR_APP_ID&gamesource=CUSTOM_GAME'
+getprop ro.product.model
+tail -20 /sdcard/Download/W101Quick/launcher.log

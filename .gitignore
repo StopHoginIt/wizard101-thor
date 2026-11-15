@@ -1,0 +1,11 @@
+# never commit account data or logs
+config.json
+*.log
+logs/
+export/
+launcher/go.sum.local
+dist/
+*.exe
+platform-tools/
+thor-commands.txt
+quick-overlay/
