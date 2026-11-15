@@ -24,6 +24,16 @@ Meanwhile logcat shows a flood of SELinux denials: `avc: denied { ioctl } for co
 
 Ideas being tested are in [ROADMAP.md](ROADMAP.md#performance).
 
+## Bottom screen: GameNative's Hybrid mode
+
+Tested 2026-11-15 on stock GameNative 1.4.0: container settings → **Controller** tab → scroll to the bottom → **External Display Input** → *Hybrid (touchpad + keyboard button)*, then save. "Show Game on External Display" stays off.
+
+Result: the game stays on the top screen. The bottom screen (Android display 4, 1240×1080 as GameNative draws it) becomes a black touchpad with a keyboard button in the bottom-right corner. Wizard101 and the quick launcher start normally with it on.
+
+Timing on that run (cold start after the Thor had been charging): Play → splash 2 min 47 s, character select by 3 min 17 s. Earlier warm runs reached character select in about 2 minutes.
+
+To screenshot the bottom screen over adb: `screencap -d 4630946482288158084 -p FILE` (the physical display ID from `dumpsys display`; it may differ per unit).
+
 ## Stuck keys under gamescope
 
 **Symptom:** with stick directions bound to keys (W/A/S/D), the wizard spins in circles or keeps running after the stick is released.

@@ -8,7 +8,7 @@ Hardware: 3.92″ AMOLED touchscreen, 1080×1240, 60 Hz. Android treats the **to
 
 What exists:
 - **AYN dual-screen launcher**: any Android app can be pinned to the bottom screen. Today you can put `companion/W101-Companion.html` in a browser there.
-- **GameNative external-display input**: stock GameNative has *External Display Input* modes (touchpad, keyboard, hybrid) that put a virtual keyboard and/or touchpad on the second screen.
+- [x] **GameNative external-display input** (Hybrid mode tested and working, see FINDINGS): stock GameNative has *External Display Input* modes (touchpad, keyboard, hybrid) that put a virtual keyboard and/or touchpad on the second screen.
 - **Our GameNative fork** (`gamenative-fork/`): adds a **Wizard101 mode**, a touchpad plus a grid of shortcut buttons (Backpack, Quests, Map, Spells, Friends, Pet, Crafting, Garden, Housing, Potion, Mark/Recall, Home/Hub…). Each button sends one of the game's default key bindings.
 
 Ideas, roughly in order:
