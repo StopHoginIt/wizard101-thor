@@ -32,7 +32,7 @@ Result: the game stays on the top screen. The bottom screen (Android display 4, 
 
 Timing on that run (cold start after the Thor had been charging): Play → splash 2 min 47 s, character select by 3 min 17 s. Earlier warm runs reached character select in about 2 minutes.
 
-To screenshot the bottom screen over adb: `screencap -d 4630946482288158084 -p FILE` (the physical display ID from `dumpsys display`; it may differ per unit).
+To screenshot the bottom screen over adb: `screencap -d <ID> -p FILE`, where `<ID>` is the number after `uniqueId="local:` for "Screen-2" in `dumpsys display`.
 
 ## Stuck keys under gamescope
 
