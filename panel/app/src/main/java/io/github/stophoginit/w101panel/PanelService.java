@@ -68,12 +68,14 @@ public class PanelService extends Service {
     private boolean polling;
 
     // TARGET: after casting a card, the bottom screen shows the battle so you can tap who it's for.
-    private enum Mode { EXPLORE, BATTLE, TARGET }
+    private enum Mode { EXPLORE, BATTLE, TARGET, WAIT }
     private Mode mode = Mode.EXPLORE;
     private LinearLayout target;
     private ImageView targetImage;
-    private long lastHandSeen, fastUntil;
+    private long lastHandSeen, fastUntil, lastTargetFrame;
     private boolean handGoneSinceCast;
+    private HandReader.Hand lastRead;
+    private TextView waitBanner;
     private static final long TARGET_TIMEOUT_MS = 40_000;
 
     private final Runnable pinger = new Runnable() {
@@ -98,7 +100,7 @@ public class PanelService extends Service {
                 main.post(() -> { showHand(h); showFrame(small); });
             });
             long now = System.currentTimeMillis();
-            main.postDelayed(this, now < fastUntil ? 250 : mode == Mode.TARGET ? 400 : 700);
+            main.postDelayed(this, now < fastUntil ? 250 : 700);
         }
     };
 
@@ -182,9 +184,14 @@ public class PanelService extends Service {
         battle.setVisibility(View.GONE);
         target = targetView();
         target.setVisibility(View.GONE);
+        waitBanner = new TextView(ctx);
+        Style.lettering(waitBanner, unit * 0.3f, Style.GOLD_LIGHT);
+        waitBanner.setText("✦ Casting… your cards come back next round ✦");
+        waitBanner.setVisibility(View.GONE);
         content.addView(explore);
         content.addView(battle);
         content.addView(target);
+        content.addView(waitBanner, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, (int) (unit * 0.7f)));
         body.addView(content);
         root.addView(body);
 
@@ -306,9 +313,9 @@ public class PanelService extends Service {
         top.setGravity(Gravity.CENTER_VERTICAL);
         TextView hint = new TextView(ctx);
         Style.lettering(hint, unit * 0.26f, Style.GOLD_LIGHT);
-        hint.setText("Tap who the spell is for");
+        hint.setText("Tap who the spell is for  ·  no target needed? DONE");
         top.addView(hint, new LinearLayout.LayoutParams(0, (int) (unit * 0.6f), 1f));
-        TextView back = battleButton("BACK", x -> setMode(hand.n > 0 ? Mode.BATTLE : Mode.EXPLORE));
+        TextView back = battleButton("DONE", x -> setMode(Mode.WAIT));
         top.addView(back, new LinearLayout.LayoutParams((int) (unit * 1.8f), (int) (unit * 0.6f)));
         v.addView(top, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -328,6 +335,7 @@ public class PanelService extends Service {
                 if (nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1) {
                     iv.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                     clickGame(new float[] {nx, ny}, false);
+                    setMode(Mode.WAIT);
                 }
             }
             return true;
@@ -400,7 +408,9 @@ public class PanelService extends Service {
             f.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
             f.setTag("done");
             clickGame(hand.cardPoint(index), true);
-            f.setVisibility(View.GONE); // the game takes a moment; don't wait for it
+            // The game takes a moment to re-deal; show the result straight away.
+            lastRead = null;
+            render(hand.without(index));
         };
         f.setOnTouchListener((v, e) -> {
             if (e.getAction() == MotionEvent.ACTION_DOWN) {
@@ -451,32 +461,39 @@ public class PanelService extends Service {
 
     private void showHand(HandReader.Hand h) {
         if (root == null) return;
-        HandReader.Hand old = hand;
-        hand = h;
-        boolean inBattle = h.n > 0;
         long now = System.currentTimeMillis();
+        boolean inBattle = h.n > 0;
+        // Only trust a reading once two in a row agree (cards slide after a discard or cast).
+        boolean stable = lastRead != null && lastRead.n == h.n
+                && (h.n == 0 || Math.abs(lastRead.left - h.left) <= 3);
+        lastRead = h;
+        if (!stable) return;
+
         if (inBattle) {
             lastHandSeen = now;
-            // Leave the target view only when a new round's cards appear (the hand went away
-            // after the cast and came back); while targeting, the cards may stay on screen.
-            if (mode != Mode.TARGET || handGoneSinceCast) setMode(Mode.BATTLE);
-        } else if (mode == Mode.TARGET) {
+            // From the target/casting views, go back to the cards only when a new round deals
+            // them (the hand went away after the cast); while targeting they may stay on screen.
+            if ((mode != Mode.TARGET && mode != Mode.WAIT) || handGoneSinceCast) setMode(Mode.BATTLE);
+        } else if (mode == Mode.TARGET || mode == Mode.WAIT) {
             handGoneSinceCast = true;
             if (now - lastHandSeen > TARGET_TIMEOUT_MS) setMode(Mode.EXPLORE); // the battle is over
         } else if (mode == Mode.BATTLE) {
             setMode(Mode.EXPLORE);
         }
+        if (mode == Mode.BATTLE && inBattle) render(h);
+    }
+
+    /** Shows hand h on the bottom screen. */
+    private void render(HandReader.Hand h) {
+        hand = h;
         cardRow.removeAllViews();
-        if (inBattle) {
-            if (drawButton != null) drawButton.setAlpha(h.n < HandReader.MAX_HAND ? 1f : 0.45f);
-            int m = unit / 24;
-            for (int i = 0; i < h.n; i++) {
-                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(cardWidth() - 2 * m, cardHeight() - unit / 6);
-                p.setMargins(m, 0, m, 0);
-                cardRow.addView(cardView(i, h.cards[i]), p);
-            }
+        if (drawButton != null) drawButton.setAlpha(h.n < HandReader.MAX_HAND ? 1f : 0.45f);
+        int m = unit / 24;
+        for (int i = 0; i < h.n; i++) {
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(cardWidth() - 2 * m, cardHeight() - unit / 6);
+            p.setMargins(m, 0, m, 0);
+            cardRow.addView(cardView(i, h.cards[i]), p);
         }
-        if (old != null && old != h) for (Bitmap b : old.cards) if (b != null && !b.isRecycled()) b.recycle();
     }
 
     private void setMode(Mode m) {
@@ -484,15 +501,21 @@ public class PanelService extends Service {
         explore.setVisibility(m == Mode.EXPLORE ? View.VISIBLE : View.GONE);
         battle.setVisibility(m == Mode.BATTLE ? View.VISIBLE : View.GONE);
         target.setVisibility(m == Mode.TARGET ? View.VISIBLE : View.GONE);
-        title.setText(m == Mode.EXPLORE ? "✦ Spellbook ✦" : m == Mode.BATTLE ? "✦ Battle ✦" : "✦ Target ✦");
+        waitBanner.setVisibility(m == Mode.WAIT ? View.VISIBLE : View.GONE);
+        title.setText(m == Mode.EXPLORE ? "✦ Spellbook ✦" : m == Mode.BATTLE ? "✦ Battle ✦"
+                : m == Mode.TARGET ? "✦ Target ✦" : "✦ Battle ✦");
         if (m == Mode.TARGET) {
             lastHandSeen = System.currentTimeMillis();
+            lastTargetFrame = 0;
             handGoneSinceCast = false;
+            targetImage.setImageDrawable(null);
         }
     }
 
     private void showFrame(Bitmap small) {
-        if (root == null || mode != Mode.TARGET) { small.recycle(); return; }
+        long now = System.currentTimeMillis();
+        if (root == null || mode != Mode.TARGET || now - lastTargetFrame < 1500) { small.recycle(); return; }
+        lastTargetFrame = now;
         android.graphics.drawable.Drawable d = targetImage.getDrawable();
         targetImage.setImageBitmap(small);
         if (d instanceof android.graphics.drawable.BitmapDrawable) {

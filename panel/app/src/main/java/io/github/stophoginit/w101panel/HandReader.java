@@ -24,9 +24,20 @@ final class HandReader {
     static final class Hand {
         int n;              // 0 = not choosing spells
         float firstX;       // centre of card 0, reference px
+        int left = -1;      // deck box left edge in screen px (to tell a settled layout from one still moving)
         Bitmap[] cards = new Bitmap[0];
 
         /** Card i's centre as fractions of the screen. */
+        /** The hand the game shows after card i is discarded: the rest close up and re-centre. */
+        Hand without(int i) {
+            Hand o = new Hand();
+            o.n = n - 1;
+            o.firstX = firstX + CARD_PITCH / 2f;
+            o.cards = new Bitmap[o.n];
+            for (int k = 0, j = 0; k < n; k++) if (k != i) o.cards[j++] = cards[k];
+            return o;
+        }
+
         float[] cardPoint(int i) {
             return new float[] {(firstX + i * CARD_PITCH) / REF_W, ((CARD_TOP + CARD_BOTTOM) / 2f) / REF_H};
         }
@@ -65,6 +76,7 @@ final class HandReader {
         int n = Math.round((width - DECK_TO_CARD - CARD_W) / CARD_PITCH) + 1;
         if (n < 1 || n > MAX_HAND) return h;
         h.n = n;
+        h.left = left;
         h.firstX = leftRef + DECK_TO_CARD + CARD_W / 2f;
         h.cards = new Bitmap[n];
         int cw = Math.round(CARD_W * sx);
