@@ -1,4 +1,4 @@
-"""Generates Wizard101-Thor-v6.icp, the GameNative control profile for Wizard101 on the AYN Thor.
+"""Generates Wizard101-Thor-v7.icp, the GameNative control profile for Wizard101 on the AYN Thor.
 
 Needs GameNative's X11 display server: under gamescope, stick-bound keys get stuck down."""
 import json, sys
@@ -19,8 +19,11 @@ def bind(code, *bindings):
     return o
 
 controller_bindings = [
-    # Movement: W run, S walk back, A/D turn (8-way stick so "up" never leaks a turn)
-    bind(LS_UP, "KEY_W"), bind(LS_DOWN, "KEY_S"), bind(LS_LEFT, "KEY_A"), bind(LS_RIGHT, "KEY_D"),
+    # Movement: the left stick goes to Wine as an analog XInput stick. W101Quick (2.0+) reads it:
+    # up/down hold W/S, left/right turn with mouse-look at a speed that follows the tilt.
+    # (v6 mapped it to W/A/S/D keys instead; use v6 with an older launcher.)
+    bind(LS_UP, "GAMEPAD_LEFT_THUMB_UP"), bind(LS_DOWN, "GAMEPAD_LEFT_THUMB_DOWN"),
+    bind(LS_LEFT, "GAMEPAD_LEFT_THUMB_LEFT"), bind(LS_RIGHT, "GAMEPAD_LEFT_THUMB_RIGHT"),
     bind(RS_UP, "MOUSE_MOVE_UP"), bind(RS_DOWN, "MOUSE_MOVE_DOWN"),
     bind(RS_LEFT, "MOUSE_MOVE_LEFT"), bind(RS_RIGHT, "MOUSE_MOVE_RIGHT"),
     # Triggers: click / cast card (R2), right-click: discard card, hold to steer camera (L2)
@@ -73,23 +76,23 @@ radial = {
 profile = {
     "schemaVersion": 1,
     "id": 0,
-    "name": "Wizard101 (AYN Thor) v6",
+    "name": "Wizard101 (AYN Thor) v7",
     "includedSections": ["physicalController", "radialMenu"],
     "cursorSpeed": 1.5,
     "controllers": [{"id": "*", "name": "Wildcard Controller", "controllerBindings": controller_bindings}],
     "radialMenus": [radial],
     # Stick tuning: circular deadzone, a little more cursor speed on the right stick
-    "leftStickDeadzone": 0.3,
+    "leftStickDeadzone": 0.08,   # W101Quick applies its own deadzone
     "rightStickDeadzone": 0.1,
-    "leftStickSensitivity": 0.8,
+    "leftStickSensitivity": 1.0,
     "rightStickSensitivity": 1.2,
     "leftStickDeadzoneMode": "circular",
     "rightStickDeadzoneMode": "circular",
-    "leftStickDigitalMode": "eight_way",
+    "leftStickDigitalMode": "unrestricted",
     "rightStickDigitalMode": "unrestricted",
 }
 
-out = sys.argv[1] if len(sys.argv) > 1 else "Wizard101-Thor-v6.icp"
+out = sys.argv[1] if len(sys.argv) > 1 else "Wizard101-Thor-v7.icp"
 with open(out, "w") as f:
     json.dump(profile, f, indent=2)
 print("wrote", out)

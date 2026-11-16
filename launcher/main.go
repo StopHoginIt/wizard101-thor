@@ -27,7 +27,7 @@ import (
 	"unsafe"
 )
 
-const version = "1.9"
+const version = "2.0"
 
 const (
 	idOK       = 1
@@ -503,6 +503,7 @@ func (a *app) work(user, pass string, remember, scan bool) {
 	if _, err := os.Stat(filepath.Join(exeDir(), "no-panel.txt")); err != nil {
 		go runPanelBridge(gone)
 	}
+	go runStick(gone)
 	if _, err := os.Stat(filepath.Join(exeDir(), "debug-keys.txt")); err == nil {
 		go keyStateMonitor(cmd.Process.Pid, gone)
 	}

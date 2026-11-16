@@ -38,7 +38,7 @@ jobs:
       - name: Check profile
         run: |
           python3 tools/make_profile.py /tmp/gen.icp
-          python3 tools/validate_profile.py profiles/Wizard101-Thor-v6.icp
+          python3 tools/validate_profile.py profiles/Wizard101-Thor-v7.icp
       - name: Package extras
         run: |
           cp profiles/*.icp companion/W101-Companion.html dist/

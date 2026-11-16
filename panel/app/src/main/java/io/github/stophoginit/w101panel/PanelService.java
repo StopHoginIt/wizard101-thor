@@ -81,7 +81,7 @@ public class PanelService extends Service {
     private int health = -1, mana = -1, potions = -1, maxHealth = -1;
     private int normalPips = -1, powerPips = -1;
     private boolean battleStats;   // show pips (we're in a battle)
-    private long castUntil, noHandSince, shownAt;
+    private long castUntil, noHandSince, shownAt, lastBattlePing;
     private HandReader.Hand shown;
     private TextView waitBanner;
     private static final long TARGET_TIMEOUT_MS = 40_000;
@@ -493,6 +493,11 @@ public class PanelService extends Service {
         lastRead = h;
         if (!stable) return;
 
+        if (inBattle || (lastHandSeen > 0 && now - lastHandSeen < TARGET_TIMEOUT_MS && mode != Mode.EXPLORE)) {
+            // Tell the launcher a battle is on, so the stick doesn't turn with the right mouse
+            // button (a right-click there discards a card).
+            if (now - lastBattlePing > 1000) { Bridge.send("w101 battle"); lastBattlePing = now; }
+        }
         if (inBattle) {
             noHandSince = 0;
             lastHandSeen = now;
