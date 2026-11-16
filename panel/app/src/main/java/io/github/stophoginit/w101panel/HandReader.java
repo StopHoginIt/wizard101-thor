@@ -20,11 +20,15 @@ final class HandReader {
     static final float DECK_PROBE_Y = 530f;
     static final float BUTTON_Y = 663f, PASS_X = 695f, DRAW_X = 958f, FLEE_X = 1228f;
     static final int MAX_HAND = 7;
+    // The hint line above the cards. "(mouse) to Select, (mouse) to Discard." starts at x 802;
+    // while choosing a target it reads "(mouse) highlighted players to select target." from x 748.
+    static final float HINT_Y = 427f, HINT_TARGET_MAX_LEFT = 775f;
 
     static final class Hand {
         int n;              // 0 = not choosing spells
         float firstX;       // centre of card 0, reference px
         int left = -1;      // deck box left edge in screen px (to tell a settled layout from one still moving)
+        boolean targeting;  // a card is chosen and the game wants a target
         Bitmap[] cards = new Bitmap[0];
 
         /** Card i's centre as fractions of the screen. */
@@ -48,6 +52,19 @@ final class HandReader {
     private static boolean deckRed(int c) {
         int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
         return r > 70 && r > g * 1.8f && r > b * 1.8f;
+    }
+
+    private static boolean targeting(Bitmap screen, float sx, float sy) {
+        int y = Math.round(HINT_Y * sy), first = -1, count = 0;
+        for (int x = Math.round(700 * sx); x < Math.round(1300 * sx); x++) {
+            int c = screen.getPixel(x, y);
+            int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+            if (r > 200 && g > 200 && b > 200) {
+                if (first < 0) first = x;
+                count++;
+            }
+        }
+        return first >= 0 && first / sx < HINT_TARGET_MAX_LEFT && count / sx > 150;
     }
 
     static Hand read(Bitmap screen) {
@@ -77,6 +94,7 @@ final class HandReader {
         if (n < 1 || n > MAX_HAND) return h;
         h.n = n;
         h.left = left;
+        h.targeting = targeting(screen, sx, sy);
         h.firstX = leftRef + DECK_TO_CARD + CARD_W / 2f;
         h.cards = new Bitmap[n];
         int cw = Math.round(CARD_W * sx);

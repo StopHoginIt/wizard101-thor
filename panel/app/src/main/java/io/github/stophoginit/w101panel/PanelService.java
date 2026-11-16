@@ -77,7 +77,10 @@ public class PanelService extends Service {
     private HandReader.Hand lastRead;
     private boolean connected;
     private int statTick;
-    private int health = -1, mana = -1, potions = -1;
+    private int health = -1, mana = -1, potions = -1, maxHealth = -1;
+    private int normalPips = -1, powerPips = -1;
+    private boolean battleStats;   // show pips (we're in a battle)
+    private long castUntil, noHandSince;
     private TextView waitBanner;
     private static final long TARGET_TIMEOUT_MS = 40_000;
 
@@ -99,7 +102,7 @@ public class PanelService extends Service {
                 HandReader.Hand h = HandReader.read(frame);
                 if (statTick++ % 3 == 0) {
                     final boolean inBattle = h.n > 0;
-                    Stats.read(frame, st -> main.post(() -> onStats(st, inBattle)));
+                    Stats.read(frame, inBattle, st -> main.post(() -> onStats(st, inBattle)));
                 }
                 Bitmap small = Bitmap.createScaledBitmap(frame, tw, Math.round(tw * frame.getHeight() / (float) frame.getWidth()), true);
                 frame.recycle();
@@ -323,7 +326,7 @@ public class PanelService extends Service {
         Style.lettering(hint, unit * 0.26f, Style.GOLD_LIGHT);
         hint.setText("Tap who the spell is for");
         top.addView(hint, new LinearLayout.LayoutParams(0, (int) (unit * 0.6f), 1f));
-        TextView cards = battleButton("◀ CARDS", x -> { setMode(Mode.BATTLE); render(hand); });
+        TextView cards = battleButton("◀ CARDS", x -> { castUntil = 0; setMode(Mode.BATTLE); render(hand); });
         LinearLayout.LayoutParams cpl = new LinearLayout.LayoutParams((int) (unit * 2.0f), (int) (unit * 0.6f));
         cpl.setMargins(0, 0, unit / 8, 0);
         top.addView(cards, cpl);
@@ -437,6 +440,7 @@ public class PanelService extends Service {
                 if (v.getTag() == null) {
                     v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                     clickGame(hand.cardPoint(index), false);
+                    castUntil = System.currentTimeMillis() + 1500;
                     setMode(Mode.TARGET);
                 }
             } else if (e.getAction() == MotionEvent.ACTION_CANCEL) {
@@ -476,26 +480,35 @@ public class PanelService extends Service {
         long now = System.currentTimeMillis();
         boolean inBattle = h.n > 0;
         // Only trust a reading once two in a row agree (cards slide after a discard or cast).
-        boolean stable = lastRead != null && lastRead.n == h.n
+        boolean stable = lastRead != null && lastRead.n == h.n && lastRead.targeting == h.targeting
                 && (h.n == 0 || Math.abs(lastRead.left - h.left) <= 3);
         lastRead = h;
         if (!stable) return;
 
         if (inBattle) {
+            noHandSince = 0;
             lastHandSeen = now;
-            // From the target/casting views, go back to the cards only when a new round deals
-            // them (the hand went away after the cast); while targeting they may stay on screen.
-            if ((mode != Mode.TARGET && mode != Mode.WAIT) || handGoneSinceCast) setMode(Mode.BATTLE);
-        } else if (mode == Mode.TARGET || mode == Mode.WAIT) {
-            handGoneSinceCast = true;
-            // While you pick a target the hand stays on screen; if it's gone, the spell
-            // needed no target and is already being cast.
-            if (mode == Mode.TARGET) setMode(Mode.WAIT);
-            if (now - lastHandSeen > TARGET_TIMEOUT_MS) setMode(Mode.EXPLORE); // the battle is over
-        } else if (mode == Mode.BATTLE) {
-            setMode(Mode.EXPLORE);
+            hand = h;
+            if (h.targeting) {
+                // A card is chosen (here or in the game) and the game wants a target.
+                if (mode != Mode.TARGET) setMode(Mode.TARGET);
+            } else if (mode == Mode.TARGET && now < castUntil) {
+                // We just cast from the panel; the game hasn't caught up yet.
+            } else {
+                if (mode != Mode.BATTLE) setMode(Mode.BATTLE);
+                render(h);
+            }
+        } else {
+            if (noHandSince == 0) noHandSince = now;
+            boolean goneAWhile = now - noHandSince > 1200;
+            if (mode == Mode.TARGET && goneAWhile && now >= castUntil) {
+                setMode(Mode.WAIT); // the spell is being cast (it needed no target, or one was picked)
+            } else if (mode == Mode.BATTLE && goneAWhile) {
+                setMode(Mode.EXPLORE);
+            } else if (mode == Mode.WAIT && now - lastHandSeen > TARGET_TIMEOUT_MS) {
+                setMode(Mode.EXPLORE); // the battle is over
+            }
         }
-        if (mode == Mode.BATTLE && inBattle) render(h);
     }
 
     /** Shows hand h on the bottom screen. */
@@ -514,6 +527,9 @@ public class PanelService extends Service {
     private void onStats(Stats st, boolean inBattle) {
         if (st.health >= 0) health = st.health;
         if (st.mana >= 0) mana = st.mana;
+        if (st.maxHealth > 0) maxHealth = st.maxHealth;
+        battleStats = inBattle || mode == Mode.TARGET || mode == Mode.WAIT;
+        if (inBattle && st.normalPips >= 0) { normalPips = st.normalPips; powerPips = st.powerPips; }
         // The potion bottles are only drawn outside battle.
         if (!inBattle && mode == Mode.EXPLORE && st.potions >= 0) potions = st.potions;
         updateStatus();
@@ -527,9 +543,19 @@ public class PanelService extends Service {
             return;
         }
         StringBuilder b = new StringBuilder();
-        if (health >= 0) b.append("❤ ").append(health).append("   ");
+        if (health >= 0) {
+            b.append("❤ ").append(health);
+            if (maxHealth >= health) b.append("/").append(maxHealth);
+            b.append("   ");
+        }
         if (mana >= 0) b.append("💧 ").append(mana).append("   ");
-        if (potions >= 0) b.append("🧪 ").append(potions);
+        if (battleStats && normalPips >= 0) {
+            for (int i = 0; i < normalPips; i++) b.append("⚪");
+            for (int i = 0; i < powerPips; i++) b.append("🟡");
+            if (normalPips + powerPips == 0) b.append("no pips");
+        } else if (potions >= 0) {
+            b.append("🧪 ").append(potions);
+        }
         status.setText(b.length() > 0 ? b.toString().trim() : "● game");
         status.setTextColor(Style.GOLD_LIGHT);
     }
