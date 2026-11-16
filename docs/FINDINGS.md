@@ -50,6 +50,17 @@ Tried and kept out:
 
 The GPU is mostly idle in game (≈15% busy at its lowest clock); the client's main thread uses a full CPU core under FEX, so the game is CPU-bound. FEX preset *Performance* (instead of *Intermediate*) was stable but made no noticeable difference.
 
+### Newer FEX with a disk cache (tried 2026-11-15)
+
+FEX translates the client's x86-64 code to ARM the first time it runs, so a new area or spell costs translation time on top of loading. FEX 2609 added an opt-in disk cache that keeps translated code between launches (`FEX_DISKCACHE=1`); 2610 caps it at 1 GB. GameNative's own download list offers `2610-gn-5` and `2611-gn-6`; its default is 2605, and this container had 2512.
+
+Set in the Wizard101 container: Emulation → FEXCore Version **2611-gn-6**, Environment → `FEX_DISKCACHE` = `1`. The FEX preset stays *Performance* (TSO already off). First impressions: play felt smoother. One launch with a filled cache hung before character select (client process alive, no CPU time); the next launch was fine. If that repeats, set `FEX_DISKCACHE` to `0` and keep 2611.
+
+Ideas checked and parked:
+- **Native ARM64EC DXVK.** GameNative's DXVK is x86-64 and runs under FEX. Dmage22/dxvk's ARM64EC builds are unmodified upstream DXVK built by GitHub Actions (reviewed: build workflow, no fork-only source commits, package contents and imports). Not tried yet.
+- **A missing-file cache inside the client** (like the gamecache DLL in a GameNative fork) would remove the `CSR.wad` lookups, but it hooks file calls in the game client, so it's out.
+- **Thor performance mode** was 1 (mid cores capped at 2.71 of 2.80 GHz); High is worth a try. The game already runs on cores 4-7 only, no thermal throttling.
+
 ## Bottom screen: GameNative's Hybrid mode
 
 Tested 2026-11-15 on stock GameNative 1.4.0: container settings → **Controller** tab → scroll to the bottom → **External Display Input** → *Hybrid (touchpad + keyboard button)*, then save. "Show Game on External Display" stays off.
@@ -118,3 +129,11 @@ The current client uses an action-based binding system:
 ## Memory
 
 The client uses about 1.3–1.7 GB RSS in game. Once, under gamescope with a stuck key, Android's low-memory killer killed GameNative (system-wide pressure, about 12 GB used) about 2 minutes after entering the world. This hasn't been reproduced in X11 mode.
+
+## Panel capture size
+
+MediaProjection mirrors the top screen into a surface the panel sizes itself. Sized from `DEFAULT_DISPLAY`, the surface was sometimes the bottom screen's 1240x1080, so the 16:9 game was letterboxed and readers near the bottom edge (spellbook, health, pips) read the black bars; the hand reader near the middle still mostly worked. Panel 0.17+ sizes the capture from the largest display and crops off any letterbox.
+
+## End of a battle
+
+The panel tells the launcher a battle is on (the stick then doesn't right-click, which would discard a card). The world HUD's spellbook button is hidden for the whole battle, so the panel ends battle mode after two sightings of it in a row (panel 0.15+, `w101 explore` in launcher 2.3+). Before that it waited up to 40 s after the last hand, which blocked turning after a fight.
