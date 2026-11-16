@@ -318,3 +318,41 @@ func keyStateMonitor(clientPid int, done <-chan struct{}) {
 		}
 	}
 }
+
+// lookupStubs are archives the client asks for tens of thousands of times even
+// though they don't exist on an en-US install. On Windows each miss is cheap.
+// Under Wine on Android every miss makes Wine scan Data\GameData (~2,900
+// entries) to rule out a different-case match, on the game's main thread.
+// An empty KIWAD archive (header only, zero files) answers the lookup at once.
+var lookupStubs = []string{
+	`Data\GameData\Locale_en-US-Root.wad`,
+}
+
+// emptyKIWAD: "KIWAD", version 2, 0 files, flags 0.
+var emptyKIWAD = []byte{'K', 'I', 'W', 'A', 'D', 2, 0, 0, 0, 0, 0, 0, 0, 0}
+
+// ensureLookupStubs creates the stubs, or removes them again if
+// <exeDir>\no-stubs.txt exists. It never touches a file that isn't its own stub.
+func ensureLookupStubs(gameDir string) {
+	_, err := os.Stat(filepath.Join(exeDir(), "no-stubs.txt"))
+	remove := err == nil
+	for _, rel := range lookupStubs {
+		p := filepath.Join(gameDir, rel)
+		b, err := os.ReadFile(p)
+		switch {
+		case remove && err == nil && bytes.Equal(b, emptyKIWAD):
+			if err := os.Remove(p); err == nil {
+				logf("stubs: removed %s", rel)
+			}
+		case !remove && os.IsNotExist(err):
+			if _, derr := os.Stat(filepath.Dir(p)); derr != nil {
+				continue
+			}
+			if err := os.WriteFile(p, emptyKIWAD, 0o644); err != nil {
+				logf("stubs: %s: %v", rel, err)
+			} else {
+				logf("stubs: created %s", rel)
+			}
+		}
+	}
+}

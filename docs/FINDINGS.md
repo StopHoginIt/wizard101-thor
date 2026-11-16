@@ -22,7 +22,25 @@ ObjStateManager has loaded 1918 object state sets
 
 Meanwhile logcat shows a flood of SELinux denials: `avc: denied { ioctl } for comm="WizardGraphical" path=".../CustomGames/Wizard101/Data"`. That is the same VFAT ioctl. It's refused on app data, so Wine falls back to `readdir` scans of `Data\GameData` (about 2,900 entries) for every file name it doesn't find.
 
-Ideas being tested are in [ROADMAP.md](ROADMAP.md#performance).
+### What the client is looking for (traced 2026-11-15)
+
+A run with GameNative's Wine debug channel `file` turned on (Settings → Debug → Wine Debug Channels) logs every failed path lookup as `nt_to_unix_file_name_no_root L"…" not found in "…"`. Counting them over one session (startup, character select, about 2 minutes in the world):
+
+| Failed lookups | Path (A: = game folder) |
+|---:|---|
+| 76,175 | `Data\GameData\Locale_en-US-Root.wad` |
+| 76,168 | `Data\Data\GameData\Locale_en-US-Root.wad` (the client's second search root) |
+| 17,292 | `Data\GameData\CSR.wad` (+ the same under `Data\Data`) |
+| 1,895 each | `Data\GameData\-WorldData.wad`, `Data\GameData\-.wad` (+ `Data\Data`) |
+| ~100 | `Data\GameData\ClassicMode-WorldData.wad` |
+
+Everything else was a handful of lookups. The client asks for these archives again and again because it doesn't remember that they're missing. Each miss in `GameData` makes Wine scan all ~2,900 entries for a different-case match.
+
+**Fix (launcher 1.6):** before starting the client, W101Quick creates `Data\GameData\Locale_en-US-Root.wad` as an empty KIWAD archive (14 bytes: `KIWAD`, version 2, 0 files, flags 0; format per the [Kronos project](https://kronos-project.github.io/grimoire/internals/kiwad.html)). Result on the Thor: Play → character select went from about 2 min 50 s to **about 1 min 30 s**. It never overwrites a real file; `no-stubs.txt` in the launcher folder removes the stub again.
+
+`CSR.wad` is deliberately *not* stubbed: the name points at KingsIsle's staff tools, and faking it isn't worth the risk to an account.
+
+The GPU is mostly idle in game (≈15% busy at its lowest clock); the client's main thread uses a full CPU core under FEX, so the game is CPU-bound. FEX preset *Performance* (instead of *Intermediate*) was stable but made no noticeable difference.
 
 ## Bottom screen: GameNative's Hybrid mode
 

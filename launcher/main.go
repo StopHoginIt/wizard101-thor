@@ -27,7 +27,7 @@ import (
 	"unsafe"
 )
 
-const version = "1.5"
+const version = "1.6"
 
 const (
 	idOK       = 1
@@ -439,6 +439,7 @@ func (a *app) work(user, pass string, remember, scan bool) {
 	logf("applying overlay")
 	// 1b. Apply tweak files (D:\W101Quick\overlay\...) on top of the game folder.
 	applyOverlay(a.gameDir)
+	ensureLookupStubs(a.gameDir)
 
 	// 2. Login.
 	a.setStatus("Logging in...")
