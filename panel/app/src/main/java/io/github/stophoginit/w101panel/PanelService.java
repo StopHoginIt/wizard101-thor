@@ -77,6 +77,7 @@ public class PanelService extends Service {
     private HandReader.Hand lastRead;
     private boolean connected;
     private int statTick;
+    private volatile boolean handWasUp;
     private int health = -1, mana = -1, potions = -1, maxHealth = -1;
     private int normalPips = -1, powerPips = -1;
     private boolean battleStats;   // show pips (we're in a battle)
@@ -101,7 +102,11 @@ public class PanelService extends Service {
             final int tw = targetImageWidth();
             capture.snapshot(frame -> {
                 HandReader.Hand h = HandReader.read(frame);
-                if (statTick++ % 3 == 0) {
+                // Read stats as soon as a round's cards appear (pips change every round),
+                // then every few snapshots.
+                boolean newRound = h.n > 0 && !handWasUp;
+                handWasUp = h.n > 0;
+                if (newRound || statTick++ % 3 == 0) {
                     final boolean inBattle = h.n > 0;
                     Stats.read(frame, inBattle, st -> main.post(() -> onStats(st, inBattle)));
                 }
