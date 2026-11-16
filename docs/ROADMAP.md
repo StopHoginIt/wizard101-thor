@@ -23,7 +23,7 @@ Ideas, roughly in order:
 - [x] Skip the CEF launcher (W101Quick).
 - [x] Gamescope → X11 display server (also fixes stuck keys).
 - [x] **Startup / loading stalls**: launcher 1.6 stubs the missing `Locale_en-US-Root.wad` (76k lookups per session) → startup about 2× faster. Remaining: `CSR.wad` (17k, intentionally left), `-WorldData.wad`. Original plan: trace Wine file lookups (`WINEDEBUG=+file`) to find the missing paths the client probes in `Data\GameData`, then pre-create those folders so lookups stop scanning about 2,900 entries. Or find a way to give Wine a case-folded game directory.
-- [ ] Try **Proton 11 arm64ec**, now that the CEF launcher isn't needed.
+- [x] Try **Proton 11 arm64ec**: no improvement, stayed on Proton 9.0.
 - [x] FEX preset **Performance**: stable, no noticeable change.
 - [ ] In-game: shadows/particles/texture detail presets for the Thor.
 - [ ] Measure: DXVK HUD or the game's `PerfHUD`, with before/after numbers per change.

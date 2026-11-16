@@ -40,6 +40,14 @@ Everything else was a handful of lookups. The client asks for these archives aga
 
 `CSR.wad` is deliberately *not* stubbed: the name points at KingsIsle's staff tools, and faking it isn't worth the risk to an account.
 
+### What the remaining stutters are (measured 2026-11-15)
+
+GameNative's Performance HUD (Quick Menu → Performance HUD) shows 60 fps (the FPS limiter's cap) most of the time, with drops to 6–11 fps marked "Limited by: CPU" when entering new areas or casting. Sampling threads every 0.5 s (`top -H -p <pid>`) during those drops: one background client thread (the asset loader) runs at 70–100% while the main thread and DXVK's `dxvk-cs`/`dxvk-frame` threads go idle, so the main thread is waiting for it. DXVK's shader compile threads never showed up. The loader's time was about 60% user (the client's own code, translated by FEX) and 40% kernel (file access, partly the remaining failed lookups).
+
+Tried and kept out:
+- **Proton 11.0-1 arm64ec** instead of Proton 9.0 arm64ec: started fine, the launcher's saved login survived, but play felt the same or slightly worse. Back on Proton 9.0.
+- A frame cap below 60 doesn't help: the drops are short loading stalls, not a low average.
+
 The GPU is mostly idle in game (≈15% busy at its lowest clock); the client's main thread uses a full CPU core under FEX, so the game is CPU-bound. FEX preset *Performance* (instead of *Intermediate*) was stable but made no noticeable difference.
 
 ## Bottom screen: GameNative's Hybrid mode
