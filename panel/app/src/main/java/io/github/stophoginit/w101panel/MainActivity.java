@@ -19,8 +19,9 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         // Opening the app starts the panel straight away once it's allowed, so it
         // also works from the Thor's bottom-screen app picker and from adb.
-        if (Settings.canDrawOverlays(this) && !PanelService.running) {
-            startForegroundService(new Intent(this, PanelService.class));
+        // If the panel is already up but hidden, this brings it back.
+        if (Settings.canDrawOverlays(this) && !getIntent().getBooleanExtra("setup", false)) {
+            startForegroundService(new Intent(this, PanelService.class).setAction(PanelService.ACTION_SHOW));
             finish();
             return;
         }

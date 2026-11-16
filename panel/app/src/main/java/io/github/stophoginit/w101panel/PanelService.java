@@ -33,6 +33,7 @@ import android.widget.TextView;
  */
 public class PanelService extends Service {
     static final String ACTION_STOP = "stop";
+    static final String ACTION_SHOW = "show";
     static volatile boolean running;
 
     // label, launcher action
@@ -75,6 +76,7 @@ public class PanelService extends Service {
         }
         startForeground(1, notification());
         if (root == null) show();
+        else if (collapsed && intent != null && ACTION_SHOW.equals(intent.getAction())) toggle();
         return START_STICKY;
     }
 
@@ -135,7 +137,20 @@ public class PanelService extends Service {
         bar.addView(status);
         TextView handle = button(ctx, "▲ hide", v -> toggle());
         bar.addView(handle, new LinearLayout.LayoutParams(unit * 2, (int) (unit * 0.6f)));
-        closeButton = button(ctx, "✕", v -> stopSelf());
+        // Remove only on a long press, so a stray tap can't close the panel.
+        closeButton = button(ctx, "✕", v -> {});
+        final Runnable close = this::stopSelf;
+        closeButton.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                main.postDelayed(close, 800);
+            } else if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) {
+                main.removeCallbacks(close);
+                if (e.getAction() == MotionEvent.ACTION_UP && e.getEventTime() - e.getDownTime() < 800) {
+                    android.widget.Toast.makeText(ctx, "Hold ✕ to remove the panel", android.widget.Toast.LENGTH_SHORT).show();
+                }
+            }
+            return true;
+        });
         LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams((int) (unit * 0.8f), (int) (unit * 0.6f));
         cp.setMargins(unit / 8, 0, 0, 0);
         bar.addView(closeButton, cp);
