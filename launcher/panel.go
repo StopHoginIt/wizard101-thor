@@ -33,6 +33,7 @@ const panelAddr = "127.0.0.1:47101"
 var (
 	pSendInput      = user32.NewProc("SendInput")
 	pMapVirtualKeyW = user32.NewProc("MapVirtualKeyW")
+	pGetCursorPos   = user32.NewProc("GetCursorPos")
 )
 
 const (
@@ -135,10 +136,42 @@ func pressAction(a keyAction) {
 	}
 }
 
+// cursorFraction is the mouse position as fractions of the screen.
+func cursorFraction() (float64, float64, bool) {
+	var pt [2]int32
+	if r, _, _ := pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt[0]))); r == 0 {
+		return 0, 0, false
+	}
+	w, _, _ := pGetSystemMetrics.Call(0)
+	h, _, _ := pGetSystemMetrics.Call(1)
+	if w == 0 || h == 0 {
+		return 0, 0, false
+	}
+	return float64(pt[0]) / float64(w), float64(pt[1]) / float64(h), true
+}
+
+func moveTo(x, y float64) {
+	sendInputs(mouseInput(int32(x*65535), int32(y*65535), mouseMove|mouseAbsolute))
+}
+
+// clickAt clicks without taking the player's pointer: afterwards the pointer goes
+// back where it was. If that's over the battle hand (where a hovered card grows
+// and hides its neighbours), it waits just below the cards instead.
 func clickAt(x, y float64, right bool) {
 	if x < 0 || x > 1 || y < 0 || y > 1 {
 		return
 	}
+	px, py, havePos := cursorFraction()
+	defer func() {
+		time.Sleep(30 * time.Millisecond)
+		switch {
+		case !havePos:
+		case py > 0.42 && py < 0.58:
+			moveTo(0.5, 0.80)
+		default:
+			moveTo(px, py)
+		}
+	}()
 	ax, ay := int32(x*65535), int32(y*65535)
 	down, up := uint32(mouseLeftDown), uint32(mouseLeftUp)
 	if right {
