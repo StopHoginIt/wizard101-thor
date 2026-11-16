@@ -27,7 +27,7 @@ import (
 	"unsafe"
 )
 
-const version = "1.6"
+const version = "1.7"
 
 const (
 	idOK       = 1
@@ -500,6 +500,9 @@ func (a *app) work(user, pass string, remember, scan bool) {
 	gone := make(chan struct{})
 	go func() { err := cmd.Wait(); close(gone); exited <- err }()
 	go mirrorClientLog(filepath.Join(bin, "WizardClient.log"), gone)
+	if _, err := os.Stat(filepath.Join(exeDir(), "no-panel.txt")); err != nil {
+		go runPanelBridge(gone)
+	}
 	if _, err := os.Stat(filepath.Join(exeDir(), "debug-keys.txt")); err == nil {
 		go keyStateMonitor(cmd.Process.Pid, gone)
 	}

@@ -1,0 +1,38 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'io.github.stophoginit.w101panel'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'io.github.stophoginit.w101panel'
+        minSdk 30
+        targetSdk 33
+        versionCode 1
+        versionName '0.1'
+    }
+
+    // A fixed key so a new build installs over an older one. It only identifies
+    // this sideloaded app; it is not a secret.
+    signingConfigs {
+        shared {
+            storeFile file('../panel.keystore')
+            storePassword 'w101panel'
+            keyAlias 'w101panel'
+            keyPassword 'w101panel'
+        }
+    }
+    buildTypes {
+        debug { signingConfig signingConfigs.shared }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.shared
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

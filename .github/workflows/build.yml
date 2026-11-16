@@ -24,6 +24,17 @@ jobs:
           GOOS=windows go vet ./...
           GOOS=windows GOARCH=arm64 go build -trimpath -ldflags "-s -w -H windowsgui" -o ../dist/W101Quick-arm64.exe .
           GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -H windowsgui" -o ../dist/W101Quick-amd64.exe .
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Build W101 Panel (Android)
+        run: |
+          gradle -p panel --no-daemon assembleRelease
+          cp panel/app/build/outputs/apk/release/app-release.apk dist/W101Panel.apk
       - name: Check profile
         run: |
           python3 tools/make_profile.py /tmp/gen.icp
