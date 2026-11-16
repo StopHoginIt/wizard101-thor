@@ -18,7 +18,7 @@ package main
 // During a battle (the W101 Panel reports it) turning is off: a right-click
 // there would discard the card under the pointer.
 //
-// Tuning lives in stick.txt next to the launcher ("speed 5", "deadzone 0.15",
+// Tuning lives in stick.txt next to the launcher ("speed 3.5", "deadzone 0.15",
 // "walk 0.4"); it's re-read while the game runs, and "w101 stick speed 4" over
 // the panel bridge changes it on the fly. no-stick.txt turns the whole thing off.
 
@@ -74,7 +74,7 @@ type stickTuning struct {
 }
 
 func loadStickTuning() stickTuning {
-	t := stickTuning{speed: 5, deadzone: 0.15, walk: 0.4}
+	t := stickTuning{speed: 3.5, deadzone: 0.15, walk: 0.4}
 	f, err := os.Open(filepath.Join(exeDir(), "stick.txt"))
 	if err != nil {
 		return t

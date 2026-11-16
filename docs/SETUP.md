@@ -39,7 +39,7 @@ If KingsIsle releases an update, the launcher downloads only the changed files. 
 
 ## 4. Controller profile
 
-Copy `profiles/Wizard101-Thor-v6.icp` to the Thor's Download folder. In game: **Back** (quick menu) → controller tab → **Control Profiles** → ⤓ Import → pick the file → **Add to library** → find it in the list → **Apply**.
+Copy `profiles/Wizard101-Thor-v7.icp` to the Thor's Download folder. In game: **Back** (quick menu) → controller tab → **Control Profiles** → ⤓ Import → pick the file → **Add to library** → find it in the list → **Apply**.
 
 ## 5. In-game settings that help
 

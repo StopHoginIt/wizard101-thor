@@ -10,7 +10,7 @@ Dual-screen Wizard101 on the **AYN Thor** (Android 13, Snapdragon 8 Gen 2), runn
 |---|---|
 | Game runs on the Thor (top screen, 1080p) | ✅ |
 | **Quick launcher**: press Play → in game, no password typing, no KingsIsle launcher | ✅ `W101Quick.exe` |
-| Controller: run / walk back / turn on the left stick, cursor on the right stick | ✅ profile **v6** |
+| Controller: analog movement on the left stick (turn speed follows the tilt), cursor on the right stick | ✅ profile **v7** + W101Quick 2.2 |
 | Smooth play | ✅ X11 display mode + launcher 1.6 file-lookup fix; some stutter remains (the game is CPU-bound under FEX) |
 | Bottom screen | ✅ touchpad + keyboard (GameNative *Hybrid*) and **W101 Panel** shortcut buttons ([panel/](panel)) |
 | Startup time | 🟡 about 1½ minutes to character select, was about 3 ([why](docs/FINDINGS.md#slow-startup)) |
@@ -23,14 +23,14 @@ Full walkthrough: **[docs/SETUP.md](docs/SETUP.md)**. In short:
 2. Container settings: **Wine version** `proton-9.0-arm64ec`, **Graphics → Display Server: X11** (important), FEXCore preset Intermediate.
 3. Download `W101Quick-arm64.exe` from the [latest release](../../releases/latest) and copy it to the Thor as `Download/W101Quick/W101Quick.exe`.
 4. In the container's **General → Executable Path → Custom path…**, enter `D:/W101Quick/W101Quick.exe` (`D:` is the Thor's Download folder).
-5. Import `Wizard101-Thor-v6.icp`: in game, open GameNative's quick menu (Back) → **Control Profiles** → Import → Add to library → **Apply**.
+5. Import `Wizard101-Thor-v7.icp`: in game, open GameNative's quick menu (Back) → **Control Profiles** → Import → Add to library → **Apply**.
 6. Press Play, sign in once (Y opens the keyboard), and leave **Remember me** checked. From then on Play goes straight into the game.
 
-## Controls (profile v6)
+## Controls (profile v7)
 
 | Input | Action |
 |---|---|
-| Left stick | **Up** run (W) · **down** walk backward (S) · **left/right** turn (A/D), 8-way |
+| Left stick | **Up** run · **down** walk backward · **left/right** turn, faster the further you push (needs W101Quick 2.0+) |
 | Right stick | Mouse cursor / wand |
 | R2 / L2 | Left click (talk, cast) / right click (hold + right stick turns the camera) |
 | A / B / X / Y | Interact (X) / back (Esc) / jump (Space) / on-screen keyboard |

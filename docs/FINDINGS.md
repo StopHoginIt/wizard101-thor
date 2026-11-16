@@ -85,6 +85,12 @@ Side notes:
 - Holding left and right mouse buttons ("mouse run") always worked, because the camera controller tracks button messages, not polled state. Profile v2 used that before the X11 fix.
 - The middle mouse button can be bound to actions in the game's own **Options → Keybinding** tab (it records it as `MButton2`). We tried it for walking backward under gamescope; it didn't help.
 
+## Analog movement
+
+Wizard101's movement is four actions (MoveForward/Backward/Left/Right = W/S/A/D, where A/D turn at one fixed speed) plus mouse-look (`MousePlayerLook` = right button held while the mouse moves). Binding a stick to W/A/S/D gives no analog control, and GameNative's 8-way stick mode leaves the turn keys off until the stick is well over to the side.
+
+Profile v7 binds the left stick to `GAMEPAD_LEFT_THUMB_*`, so GameNative passes it to Wine as an XInput stick (XInput is on by default in the container's Controller tab). W101Quick 2.0+ polls `XInputGetState` every 10 ms: up/down hold W/S; left/right hold the right mouse button and move the mouse sideways at a speed that grows with the tilt (`speed × ((tilt − deadzone)/(1 − deadzone))²` pixels per tick). Speed 3.5 felt right on the Thor; it can be changed live with `w101 stick speed <n>` on the panel bridge or in `stick.txt`. While the W101 Panel reports a battle, turning is off, because a right-click there discards the card under the pointer.
+
 ## Wizard101's input bindings
 
 The current client uses an action-based binding system:
