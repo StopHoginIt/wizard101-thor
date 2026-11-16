@@ -17,6 +17,13 @@ public class MainActivity extends Activity {
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        // Opening the app starts the panel straight away once it's allowed, so it
+        // also works from the Thor's bottom-screen app picker and from adb.
+        if (Settings.canDrawOverlays(this) && !PanelService.running) {
+            startForegroundService(new Intent(this, PanelService.class));
+            finish();
+            return;
+        }
         LinearLayout l = new LinearLayout(this);
         l.setOrientation(LinearLayout.VERTICAL);
         l.setGravity(Gravity.CENTER_HORIZONTAL);

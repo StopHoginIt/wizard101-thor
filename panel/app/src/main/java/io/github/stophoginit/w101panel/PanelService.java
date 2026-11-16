@@ -50,6 +50,7 @@ public class PanelService extends Service {
     private LinearLayout root;
     private LinearLayout body;
     private TextView status;
+    private TextView closeButton;
     private WindowManager.LayoutParams lp;
     private boolean collapsed;
     private int unit; // button height in px
@@ -134,6 +135,10 @@ public class PanelService extends Service {
         bar.addView(status);
         TextView handle = button(ctx, "▲ hide", v -> toggle());
         bar.addView(handle, new LinearLayout.LayoutParams(unit * 2, (int) (unit * 0.6f)));
+        closeButton = button(ctx, "✕", v -> stopSelf());
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams((int) (unit * 0.8f), (int) (unit * 0.6f));
+        cp.setMargins(unit / 8, 0, 0, 0);
+        bar.addView(closeButton, cp);
         root.addView(bar, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -155,6 +160,7 @@ public class PanelService extends Service {
         collapsed = !collapsed;
         body.setVisibility(collapsed ? View.GONE : View.VISIBLE);
         status.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        closeButton.setVisibility(collapsed ? View.GONE : View.VISIBLE);
         TextView handle = (TextView) ((LinearLayout) root.getChildAt(1)).getChildAt(1);
         handle.setText(collapsed ? "▼ panel" : "▲ hide");
         lp.width = collapsed ? WindowManager.LayoutParams.WRAP_CONTENT : WindowManager.LayoutParams.MATCH_PARENT;
