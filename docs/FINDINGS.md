@@ -60,6 +60,10 @@ Timing on that run (cold start after the Thor had been charging): Play → splas
 
 To screenshot the bottom screen over adb: `screencap -d <ID> -p FILE`, where `<ID>` is the number after `uniqueId="local:` for "Screen-2" in `dumpsys display`.
 
+## Screen capture
+
+Inside Wine, GDI screen capture (`GetDC(0)` + `BitBlt`) returns an all-black image while the game renders through DXVK, so the launcher can't see the screen. Android's own capture (adb `screencap`, or MediaProjection in an app) does see the game, so the W101 Panel app reads the battle hand on the Android side.
+
 ## Stuck keys under gamescope
 
 **Symptom:** with stick directions bound to keys (W/A/S/D), the wizard spins in circles or keeps running after the stick is released.

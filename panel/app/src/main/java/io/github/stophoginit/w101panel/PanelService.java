@@ -7,54 +7,65 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
+import android.content.pm.ServiceInfo;
+import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
-import android.graphics.drawable.GradientDrawable;
 import android.hardware.display.DisplayManager;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.DisplayMetrics;
-import android.util.TypedValue;
 import android.view.Display;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import java.util.Locale;
 
 /**
- * Shows a strip of Wizard101 shortcut buttons along the top of the second
- * (bottom) screen. The window never takes focus, so the controller keeps
- * driving the game, and touches outside the strip reach whatever is below it
- * (GameNative's touchpad).
+ * The bottom-screen panel: a Wizard101-styled overlay on the Thor's second
+ * display. Outside battle it shows shortcut tiles; while you choose spells it
+ * shows your hand (read from the top screen) with Pass / Draw / Flee.
+ * The window never takes focus, so the controller keeps driving the game, and
+ * touches below it reach GameNative's touchpad.
  */
 public class PanelService extends Service {
     static final String ACTION_STOP = "stop";
     static final String ACTION_SHOW = "show";
+    static final String EXTRA_CODE = "code";
+    static final String EXTRA_DATA = "data";
     static volatile boolean running;
 
-    // label, launcher action
-    private static final String[][] ROW1 = {
-            {"Backpack", "backpack"}, {"Spells", "spells"}, {"Quests", "quests"},
-            {"Map", "map"}, {"Potion", "potion"}, {"Pet", "pet"},
-    };
-    private static final String[][] ROW2 = {
-            {"Mark", "mark"}, {"Recall", "recall"}, {"Home", "home"},
-            {"Friends", "friends"}, {"Chat", "chat"}, {"Esc", "menu"},
+    // icon, label, launcher action
+    private static final String[][] TILES = {
+            {"🎒", "Backpack", "backpack"}, {"📖", "Spells", "spells"}, {"📜", "Quests", "quests"},
+            {"🗺", "Map", "map"}, {"🧪", "Potion", "potion"}, {"🐾", "Pet", "pet"},
+            {"📍", "Mark", "mark"}, {"🌀", "Recall", "recall"}, {"🏠", "Home", "home"},
+            {"👥", "Friends", "friends"}, {"💬", "Chat", "chat"}, {"⚙", "Menu", "menu"},
     };
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private WindowManager wm;
-    private LinearLayout root;
-    private LinearLayout body;
-    private TextView status;
-    private TextView closeButton;
     private WindowManager.LayoutParams lp;
+    private Context ctx;
+    private int unit, screenW;
+
+    private LinearLayout root, body;
+    private TextView title, status, hideButton, closeButton;
+    private LinearLayout explore, battle, cardRow;
+    private TextView drawButton;
     private boolean collapsed;
-    private int unit; // button height in px
+
+    private Capture capture;
+    private HandReader.Hand hand = new HandReader.Hand();
+    private boolean polling;
 
     private final Runnable pinger = new Runnable() {
         @Override public void run() {
@@ -67,6 +78,18 @@ public class PanelService extends Service {
         }
     };
 
+    private final Runnable poll = new Runnable() {
+        @Override public void run() {
+            if (capture == null || !capture.alive() || collapsed) { polling = false; return; }
+            capture.snapshot(frame -> {
+                HandReader.Hand h = HandReader.read(frame);
+                frame.recycle();
+                main.post(() -> showHand(h));
+            });
+            main.postDelayed(this, 700);
+        }
+    };
+
     @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -74,15 +97,25 @@ public class PanelService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
-        startForeground(1, notification());
+        startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+        if (intent != null && intent.hasExtra(EXTRA_DATA) && (capture == null || !capture.alive())) {
+            try {
+                Intent data = intent.getParcelableExtra(EXTRA_DATA);
+                capture = new Capture(this, intent.getIntExtra(EXTRA_CODE, 0), data);
+            } catch (Exception e) {
+                capture = null;
+            }
+        }
         if (root == null) show();
-        else if (collapsed && intent != null && ACTION_SHOW.equals(intent.getAction())) toggle();
+        else if (collapsed && ACTION_SHOW.equals(intent != null ? intent.getAction() : null)) toggle();
+        startPolling();
         return START_STICKY;
     }
 
     @Override public void onDestroy() {
         running = false;
-        main.removeCallbacks(pinger);
+        main.removeCallbacksAndMessages(null);
+        if (capture != null) capture.release();
         if (wm != null && root != null) {
             try { wm.removeView(root); } catch (Exception ignored) {}
         }
@@ -102,7 +135,6 @@ public class PanelService extends Service {
                 .build();
     }
 
-    /** The bottom screen: the first display that isn't the default one; the default display as a fallback. */
     private Display targetDisplay() {
         DisplayManager dm = getSystemService(DisplayManager.class);
         for (Display d : dm.getDisplays()) {
@@ -111,51 +143,35 @@ public class PanelService extends Service {
         return dm.getDisplay(Display.DEFAULT_DISPLAY);
     }
 
+    // ---------------------------------------------------------------- layout
+
     private void show() {
         Display display = targetDisplay();
-        Context ctx = createDisplayContext(display)
+        ctx = createDisplayContext(display)
                 .createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null);
         wm = ctx.getSystemService(WindowManager.class);
         DisplayMetrics dmx = ctx.getResources().getDisplayMetrics();
-        unit = Math.max(dp(ctx, 44), Math.min(dmx.widthPixels, dmx.heightPixels) / 9);
+        screenW = dmx.widthPixels;
+        unit = Math.max(88, Math.min(dmx.widthPixels, dmx.heightPixels) / 9);
 
         root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
+        int pad = unit / 10;
+        root.setPadding(pad, pad, pad, pad);
+        root.setBackground(Style.panelBackground(unit * 0.25f));
+
+        root.addView(header());
 
         body = new LinearLayout(ctx);
         body.setOrientation(LinearLayout.VERTICAL);
-        body.addView(row(ctx, ROW1));
-        body.addView(row(ctx, ROW2));
+        FrameLayout content = new FrameLayout(ctx);
+        explore = exploreView();
+        battle = battleView();
+        battle.setVisibility(View.GONE);
+        content.addView(explore);
+        content.addView(battle);
+        body.addView(content);
         root.addView(body);
-
-        LinearLayout bar = new LinearLayout(ctx);
-        bar.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        status = new TextView(ctx);
-        status.setTextSize(TypedValue.COMPLEX_UNIT_PX, unit * 0.28f);
-        status.setPadding(unit / 4, 0, unit / 4, 0);
-        status.setText("…");
-        bar.addView(status);
-        TextView handle = button(ctx, "▲ hide", v -> toggle());
-        bar.addView(handle, new LinearLayout.LayoutParams(unit * 2, (int) (unit * 0.6f)));
-        // Remove only on a long press, so a stray tap can't close the panel.
-        closeButton = button(ctx, "✕", v -> {});
-        final Runnable close = this::stopSelf;
-        closeButton.setOnTouchListener((v, e) -> {
-            if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                main.postDelayed(close, 800);
-            } else if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) {
-                main.removeCallbacks(close);
-                if (e.getAction() == MotionEvent.ACTION_UP && e.getEventTime() - e.getDownTime() < 800) {
-                    android.widget.Toast.makeText(ctx, "Hold ✕ to remove the panel", android.widget.Toast.LENGTH_SHORT).show();
-                }
-            }
-            return true;
-        });
-        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams((int) (unit * 0.8f), (int) (unit * 0.6f));
-        cp.setMargins(unit / 8, 0, 0, 0);
-        bar.addView(closeButton, cp);
-        root.addView(bar, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -171,56 +187,239 @@ public class PanelService extends Service {
         main.post(pinger);
     }
 
-    private void toggle() {
-        collapsed = !collapsed;
-        body.setVisibility(collapsed ? View.GONE : View.VISIBLE);
-        status.setVisibility(collapsed ? View.GONE : View.VISIBLE);
-        closeButton.setVisibility(collapsed ? View.GONE : View.VISIBLE);
-        TextView handle = (TextView) ((LinearLayout) root.getChildAt(1)).getChildAt(1);
-        handle.setText(collapsed ? "▼ panel" : "▲ hide");
-        lp.width = collapsed ? WindowManager.LayoutParams.WRAP_CONTENT : WindowManager.LayoutParams.MATCH_PARENT;
-        wm.updateViewLayout(root, lp);
+    private LinearLayout header() {
+        LinearLayout bar = new LinearLayout(ctx);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        int h = (int) (unit * 0.62f);
+
+        title = new TextView(ctx);
+        Style.lettering(title, unit * 0.32f, Style.INK);
+        title.setShadowLayer(0, 0, 0, 0);
+        title.setText("✦ Spellbook ✦");
+        title.setBackground(Style.parchment(unit * 0.15f));
+        title.setPadding(unit / 4, 0, unit / 4, 0);
+        bar.addView(title, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, h));
+
+        status = new TextView(ctx);
+        status.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, unit * 0.24f);
+        status.setPadding(unit / 4, 0, unit / 4, 0);
+        status.setText("…");
+        status.setTextColor(0xFFB0B0B0);
+        bar.addView(status, new LinearLayout.LayoutParams(0, h, 1f));
+
+        hideButton = tileButton(null, "▲ Hide", v -> toggle());
+        bar.addView(hideButton, new LinearLayout.LayoutParams((int) (unit * 1.8f), h));
+
+        // Remove only on a long press, so a stray tap can't close the panel.
+        closeButton = tileButton(null, "✕", v -> {});
+        final Runnable close = this::stopSelf;
+        closeButton.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                main.postDelayed(close, 800);
+            } else if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) {
+                main.removeCallbacks(close);
+                if (e.getAction() == MotionEvent.ACTION_UP && e.getEventTime() - e.getDownTime() < 800) {
+                    Toast.makeText(ctx, "Hold ✕ to remove the panel", Toast.LENGTH_SHORT).show();
+                }
+            }
+            return true;
+        });
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams((int) (unit * 0.8f), h);
+        cp.setMargins(unit / 10, 0, 0, 0);
+        bar.addView(closeButton, cp);
+        return bar;
     }
 
-    private LinearLayout row(Context ctx, String[][] items) {
-        LinearLayout r = new LinearLayout(ctx);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        for (String[] it : items) {
-            final String action = it[1];
-            TextView b = button(ctx, it[0], v -> Bridge.key(action));
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, unit, 1f);
-            int m = unit / 16;
-            p.setMargins(m, m, m, m);
-            r.addView(b, p);
+    private LinearLayout exploreView() {
+        LinearLayout v = new LinearLayout(ctx);
+        v.setOrientation(LinearLayout.VERTICAL);
+        v.setPadding(0, unit / 10, 0, 0);
+        for (int r = 0; r < 2; r++) {
+            LinearLayout row = new LinearLayout(ctx);
+            for (int c = 0; c < 6; c++) {
+                final String[] t = TILES[r * 6 + c];
+                TextView b = tileButton(t[0], t[1], x -> Bridge.key(t[2]));
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, (int) (unit * 1.15f), 1f);
+                int m = unit / 16;
+                p.setMargins(m, m, m, m);
+                row.addView(b, p);
+            }
+            v.addView(row);
         }
-        return r;
+        return v;
     }
 
-    private TextView button(Context ctx, String label, View.OnClickListener onClick) {
+    private LinearLayout battleView() {
+        LinearLayout v = new LinearLayout(ctx);
+        v.setOrientation(LinearLayout.VERTICAL);
+        v.setGravity(Gravity.CENTER_HORIZONTAL);
+        v.setPadding(0, unit / 10, 0, 0);
+
+        TextView hint = new TextView(ctx);
+        Style.lettering(hint, unit * 0.24f, Style.GOLD_LIGHT);
+        hint.setText("Tap a card to cast  ·  hold to discard");
+        v.addView(hint, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (int) (unit * 0.42f)));
+
+        cardRow = new LinearLayout(ctx);
+        cardRow.setGravity(Gravity.CENTER);
+        v.addView(cardRow, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, cardHeight()));
+
+        LinearLayout buttons = new LinearLayout(ctx);
+        buttons.setGravity(Gravity.CENTER);
+        String[][] bs = {{"PASS", "pass"}, {"DRAW", "draw"}, {"FLEE", "flee"}};
+        for (String[] b : bs) {
+            final String which = b[1];
+            TextView t = battleButton(b[0], x -> pressBattleButton(which));
+            if (which.equals("draw")) drawButton = t;
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams((int) (unit * 2.4f), (int) (unit * 0.75f));
+            p.setMargins(unit / 5, unit / 8, unit / 5, 0);
+            buttons.addView(t, p);
+        }
+        v.addView(buttons);
+        return v;
+    }
+
+    private int cardWidth() { return (screenW - unit) / HandReader.MAX_HAND; }
+
+    private int cardHeight() {
+        return Math.round(cardWidth() * (HandReader.CARD_BOTTOM - HandReader.CARD_TOP) / HandReader.CARD_W) + unit / 6;
+    }
+
+    // ---------------------------------------------------------------- widgets
+
+    private TextView tileButton(String icon, String label, View.OnClickListener onClick) {
         TextView b = new TextView(ctx);
-        b.setText(label);
-        b.setGravity(Gravity.CENTER);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(TypedValue.COMPLEX_UNIT_PX, unit * 0.3f);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xCC2A1F4A);
-        bg.setStroke(2, 0xFFB08CFF);
-        bg.setCornerRadius(unit * 0.2f);
-        b.setBackground(bg);
+        b.setText(icon != null ? icon + "\n" + label : label);
+        Style.lettering(b, unit * 0.26f, Style.GOLD_LIGHT);
+        if (icon != null) b.setLineSpacing(unit * 0.05f, 1f);
+        final float radius = unit * 0.18f;
+        final int rim = Math.max(3, unit / 22);
+        b.setBackground(Style.tile(false, radius, rim));
         b.setOnTouchListener((v, e) -> {
             if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                bg.setColor(0xFF6B4FBB);
+                v.setBackground(Style.tile(true, radius, rim));
                 v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                 onClick.onClick(v);
             } else if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) {
-                bg.setColor(0xCC2A1F4A);
+                v.setBackground(Style.tile(false, radius, rim));
             }
             return true;
         });
         return b;
     }
 
-    private static int dp(Context c, int v) {
-        return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, c.getResources().getDisplayMetrics());
+    private TextView battleButton(String label, View.OnClickListener onClick) {
+        TextView b = new TextView(ctx);
+        b.setText(label);
+        Style.lettering(b, unit * 0.36f, Style.YELLOW);
+        final float radius = unit * 0.12f;
+        final int rim = Math.max(3, unit / 20);
+        b.setBackground(Style.battleButton(false, true, radius, rim));
+        b.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                v.setBackground(Style.battleButton(true, true, radius, rim));
+                v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                onClick.onClick(v);
+            } else if (e.getAction() == MotionEvent.ACTION_UP || e.getAction() == MotionEvent.ACTION_CANCEL) {
+                v.setBackground(Style.battleButton(false, true, radius, rim));
+            }
+            return true;
+        });
+        return b;
+    }
+
+    private View cardView(int index, Bitmap bmp) {
+        FrameLayout f = new FrameLayout(ctx);
+        int rim = Math.max(3, unit / 24);
+        f.setBackground(Style.frame(0xFF000000, 0xFF000000, unit * 0.08f, rim));
+        f.setPadding(rim, rim, rim, rim);
+        ImageView img = new ImageView(ctx);
+        img.setScaleType(ImageView.ScaleType.FIT_XY);
+        img.setImageBitmap(bmp);
+        f.addView(img);
+        final Runnable discard = () -> {
+            f.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            f.setAlpha(0.3f);
+            f.setTag("done");
+            clickGame(hand.cardPoint(index), true);
+        };
+        f.setOnTouchListener((v, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                v.setTag(null);
+                v.setScaleX(0.94f);
+                v.setScaleY(0.94f);
+                main.postDelayed(discard, 450);
+            } else if (e.getAction() == MotionEvent.ACTION_UP) {
+                main.removeCallbacks(discard);
+                v.setScaleX(1f);
+                v.setScaleY(1f);
+                if (v.getTag() == null) {
+                    v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                    clickGame(hand.cardPoint(index), false);
+                }
+            } else if (e.getAction() == MotionEvent.ACTION_CANCEL) {
+                main.removeCallbacks(discard);
+                v.setScaleX(1f);
+                v.setScaleY(1f);
+            }
+            return true;
+        });
+        return f;
+    }
+
+    // ---------------------------------------------------------------- behaviour
+
+    private void toggle() {
+        collapsed = !collapsed;
+        body.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        status.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        closeButton.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        title.setVisibility(collapsed ? View.GONE : View.VISIBLE);
+        hideButton.setText(collapsed ? "▼ Spellbook" : "▲ Hide");
+        hideButton.getLayoutParams().width = (int) (unit * (collapsed ? 2.6f : 1.8f));
+        hideButton.requestLayout();
+        lp.width = collapsed ? WindowManager.LayoutParams.WRAP_CONTENT : WindowManager.LayoutParams.MATCH_PARENT;
+        wm.updateViewLayout(root, lp);
+        if (!collapsed) startPolling();
+    }
+
+    private void startPolling() {
+        if (polling || capture == null) return;
+        polling = true;
+        main.post(poll);
+    }
+
+    private void showHand(HandReader.Hand h) {
+        if (root == null) return;
+        HandReader.Hand old = hand;
+        hand = h;
+        boolean inBattle = h.n > 0;
+        explore.setVisibility(inBattle ? View.GONE : View.VISIBLE);
+        battle.setVisibility(inBattle ? View.VISIBLE : View.GONE);
+        title.setText(inBattle ? "✦ Battle ✦" : "✦ Spellbook ✦");
+        cardRow.removeAllViews();
+        if (inBattle) {
+            if (drawButton != null) drawButton.setAlpha(h.n < HandReader.MAX_HAND ? 1f : 0.45f);
+            int m = unit / 24;
+            for (int i = 0; i < h.n; i++) {
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(cardWidth() - 2 * m, cardHeight() - unit / 6);
+                p.setMargins(m, 0, m, 0);
+                cardRow.addView(cardView(i, h.cards[i]), p);
+            }
+        }
+        if (old != null && old != h) for (Bitmap b : old.cards) if (b != null && !b.isRecycled()) b.recycle();
+    }
+
+    private void pressBattleButton(String which) {
+        float x = which.equals("pass") ? HandReader.PASS_X : which.equals("draw") ? HandReader.DRAW_X : HandReader.FLEE_X;
+        clickGame(new float[] {x / HandReader.REF_W, HandReader.BUTTON_Y / HandReader.REF_H}, false);
+    }
+
+    private void clickGame(float[] p, boolean right) {
+        Bridge.send(String.format(Locale.US, "w101 click %.4f %.4f%s", p[0], p[1], right ? " r" : ""));
+        // Look again soon, so the hand on the bottom screen follows the game.
+        main.removeCallbacks(poll);
+        polling = false;
+        main.postDelayed(this::startPolling, 450);
     }
 }
