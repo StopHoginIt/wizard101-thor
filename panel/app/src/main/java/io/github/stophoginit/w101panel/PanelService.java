@@ -67,6 +67,15 @@ public class PanelService extends Service {
     private HandReader.Hand hand = new HandReader.Hand();
     private boolean polling;
 
+    // TARGET: after casting a card, the bottom screen shows the battle so you can tap who it's for.
+    private enum Mode { EXPLORE, BATTLE, TARGET }
+    private Mode mode = Mode.EXPLORE;
+    private LinearLayout target;
+    private ImageView targetImage;
+    private long lastHandSeen, fastUntil;
+    private boolean handGoneSinceCast;
+    private static final long TARGET_TIMEOUT_MS = 40_000;
+
     private final Runnable pinger = new Runnable() {
         @Override public void run() {
             Bridge.ping(v -> main.post(() -> {
@@ -81,12 +90,15 @@ public class PanelService extends Service {
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (capture == null || !capture.alive() || collapsed) { polling = false; return; }
+            final int tw = targetImageWidth();
             capture.snapshot(frame -> {
                 HandReader.Hand h = HandReader.read(frame);
+                Bitmap small = Bitmap.createScaledBitmap(frame, tw, Math.round(tw * frame.getHeight() / (float) frame.getWidth()), true);
                 frame.recycle();
-                main.post(() -> showHand(h));
+                main.post(() -> { showHand(h); showFrame(small); });
             });
-            main.postDelayed(this, 700);
+            long now = System.currentTimeMillis();
+            main.postDelayed(this, now < fastUntil ? 250 : mode == Mode.TARGET ? 400 : 700);
         }
     };
 
@@ -168,8 +180,11 @@ public class PanelService extends Service {
         explore = exploreView();
         battle = battleView();
         battle.setVisibility(View.GONE);
+        target = targetView();
+        target.setVisibility(View.GONE);
         content.addView(explore);
         content.addView(battle);
+        content.addView(target);
         body.addView(content);
         root.addView(body);
 
@@ -279,6 +294,50 @@ public class PanelService extends Service {
         return v;
     }
 
+    private int targetImageWidth() { return Math.max(320, screenW - unit / 2); }
+
+    private LinearLayout targetView() {
+        LinearLayout v = new LinearLayout(ctx);
+        v.setOrientation(LinearLayout.VERTICAL);
+        v.setGravity(Gravity.CENTER_HORIZONTAL);
+        v.setPadding(0, unit / 12, 0, 0);
+
+        LinearLayout top = new LinearLayout(ctx);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView hint = new TextView(ctx);
+        Style.lettering(hint, unit * 0.26f, Style.GOLD_LIGHT);
+        hint.setText("Tap who the spell is for");
+        top.addView(hint, new LinearLayout.LayoutParams(0, (int) (unit * 0.6f), 1f));
+        TextView back = battleButton("BACK", x -> setMode(hand.n > 0 ? Mode.BATTLE : Mode.EXPLORE));
+        top.addView(back, new LinearLayout.LayoutParams((int) (unit * 1.8f), (int) (unit * 0.6f)));
+        v.addView(top, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        FrameLayout f = new FrameLayout(ctx);
+        int rim = Math.max(3, unit / 24);
+        f.setBackground(Style.frame(0xFF000000, 0xFF000000, unit * 0.08f, rim));
+        f.setPadding(rim, rim, rim, rim);
+        targetImage = new ImageView(ctx);
+        targetImage.setScaleType(ImageView.ScaleType.FIT_XY);
+        f.addView(targetImage);
+        int w = targetImageWidth() - 2 * rim;
+        int h = Math.round(w * 9f / 16f);
+        targetImage.setOnTouchListener((iv, e) -> {
+            if (e.getAction() == MotionEvent.ACTION_UP) {
+                float nx = e.getX() / Math.max(1, iv.getWidth());
+                float ny = e.getY() / Math.max(1, iv.getHeight());
+                if (nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1) {
+                    iv.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                    clickGame(new float[] {nx, ny}, false);
+                }
+            }
+            return true;
+        });
+        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(w + 2 * rim, h + 2 * rim);
+        fp.setMargins(0, unit / 12, 0, 0);
+        v.addView(f, fp);
+        return v;
+    }
+
     private int cardWidth() { return (screenW - unit) / HandReader.MAX_HAND; }
 
     private int cardHeight() {
@@ -339,9 +398,9 @@ public class PanelService extends Service {
         f.addView(img);
         final Runnable discard = () -> {
             f.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-            f.setAlpha(0.3f);
             f.setTag("done");
             clickGame(hand.cardPoint(index), true);
+            f.setVisibility(View.GONE); // the game takes a moment; don't wait for it
         };
         f.setOnTouchListener((v, e) -> {
             if (e.getAction() == MotionEvent.ACTION_DOWN) {
@@ -356,6 +415,7 @@ public class PanelService extends Service {
                 if (v.getTag() == null) {
                     v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                     clickGame(hand.cardPoint(index), false);
+                    setMode(Mode.TARGET);
                 }
             } else if (e.getAction() == MotionEvent.ACTION_CANCEL) {
                 main.removeCallbacks(discard);
@@ -394,9 +454,18 @@ public class PanelService extends Service {
         HandReader.Hand old = hand;
         hand = h;
         boolean inBattle = h.n > 0;
-        explore.setVisibility(inBattle ? View.GONE : View.VISIBLE);
-        battle.setVisibility(inBattle ? View.VISIBLE : View.GONE);
-        title.setText(inBattle ? "✦ Battle ✦" : "✦ Spellbook ✦");
+        long now = System.currentTimeMillis();
+        if (inBattle) {
+            lastHandSeen = now;
+            // Leave the target view only when a new round's cards appear (the hand went away
+            // after the cast and came back); while targeting, the cards may stay on screen.
+            if (mode != Mode.TARGET || handGoneSinceCast) setMode(Mode.BATTLE);
+        } else if (mode == Mode.TARGET) {
+            handGoneSinceCast = true;
+            if (now - lastHandSeen > TARGET_TIMEOUT_MS) setMode(Mode.EXPLORE); // the battle is over
+        } else if (mode == Mode.BATTLE) {
+            setMode(Mode.EXPLORE);
+        }
         cardRow.removeAllViews();
         if (inBattle) {
             if (drawButton != null) drawButton.setAlpha(h.n < HandReader.MAX_HAND ? 1f : 0.45f);
@@ -410,6 +479,28 @@ public class PanelService extends Service {
         if (old != null && old != h) for (Bitmap b : old.cards) if (b != null && !b.isRecycled()) b.recycle();
     }
 
+    private void setMode(Mode m) {
+        mode = m;
+        explore.setVisibility(m == Mode.EXPLORE ? View.VISIBLE : View.GONE);
+        battle.setVisibility(m == Mode.BATTLE ? View.VISIBLE : View.GONE);
+        target.setVisibility(m == Mode.TARGET ? View.VISIBLE : View.GONE);
+        title.setText(m == Mode.EXPLORE ? "✦ Spellbook ✦" : m == Mode.BATTLE ? "✦ Battle ✦" : "✦ Target ✦");
+        if (m == Mode.TARGET) {
+            lastHandSeen = System.currentTimeMillis();
+            handGoneSinceCast = false;
+        }
+    }
+
+    private void showFrame(Bitmap small) {
+        if (root == null || mode != Mode.TARGET) { small.recycle(); return; }
+        android.graphics.drawable.Drawable d = targetImage.getDrawable();
+        targetImage.setImageBitmap(small);
+        if (d instanceof android.graphics.drawable.BitmapDrawable) {
+            Bitmap b = ((android.graphics.drawable.BitmapDrawable) d).getBitmap();
+            if (b != null && b != small && !b.isRecycled()) b.recycle();
+        }
+    }
+
     private void pressBattleButton(String which) {
         float x = which.equals("pass") ? HandReader.PASS_X : which.equals("draw") ? HandReader.DRAW_X : HandReader.FLEE_X;
         clickGame(new float[] {x / HandReader.REF_W, HandReader.BUTTON_Y / HandReader.REF_H}, false);
@@ -417,9 +508,10 @@ public class PanelService extends Service {
 
     private void clickGame(float[] p, boolean right) {
         Bridge.send(String.format(Locale.US, "w101 click %.4f %.4f%s", p[0], p[1], right ? " r" : ""));
-        // Look again soon, so the hand on the bottom screen follows the game.
+        // Look again quickly for a couple of seconds, so the bottom screen follows the game.
+        fastUntil = System.currentTimeMillis() + 2000;
         main.removeCallbacks(poll);
         polling = false;
-        main.postDelayed(this::startPolling, 450);
+        main.postDelayed(this::startPolling, 250);
     }
 }
