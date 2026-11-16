@@ -32,6 +32,7 @@ final class Capture {
     private VirtualDisplay display;
     private ImageReader reader;
     private Listener pending;
+    private int framesSinceAttach;
 
     Capture(Context ctx, int resultCode, Intent data) {
         thread.start();
@@ -51,6 +52,8 @@ final class Capture {
         reader.setOnImageAvailableListener(r -> {
             Image img = r.acquireLatestImage();
             if (img == null) return;
+            // The first frame after the surface is attached can be half drawn; use the next one.
+            if (++framesSinceAttach < 2) { img.close(); return; }
             Listener l = pending;
             pending = null;
             if (display != null) display.setSurface(null); // pause until the next snapshot
@@ -70,6 +73,7 @@ final class Capture {
         handler.post(() -> {
             if (display == null || reader == null) return;
             pending = l;
+            framesSinceAttach = 0;
             display.setSurface(reader.getSurface());
         });
     }

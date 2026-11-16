@@ -80,7 +80,8 @@ public class PanelService extends Service {
     private int health = -1, mana = -1, potions = -1, maxHealth = -1;
     private int normalPips = -1, powerPips = -1;
     private boolean battleStats;   // show pips (we're in a battle)
-    private long castUntil, noHandSince;
+    private long castUntil, noHandSince, shownAt;
+    private HandReader.Hand shown;
     private TextView waitBanner;
     private static final long TARGET_TIMEOUT_MS = 40_000;
 
@@ -495,8 +496,10 @@ public class PanelService extends Service {
             } else if (mode == Mode.TARGET && now < castUntil) {
                 // We just cast from the panel; the game hasn't caught up yet.
             } else {
+                boolean changed = mode != Mode.BATTLE || shown == null || shown.n != h.n
+                        || Math.abs(shown.left - h.left) > 3 || now - shownAt > 3000;
                 if (mode != Mode.BATTLE) setMode(Mode.BATTLE);
-                render(h);
+                if (changed) render(h); // redraw only when the hand changed (less flicker)
             }
         } else {
             if (noHandSince == 0) noHandSince = now;
@@ -514,6 +517,8 @@ public class PanelService extends Service {
     /** Shows hand h on the bottom screen. */
     private void render(HandReader.Hand h) {
         hand = h;
+        shown = h;
+        shownAt = System.currentTimeMillis();
         cardRow.removeAllViews();
         if (drawButton != null) drawButton.setAlpha(h.n < HandReader.MAX_HAND ? 1f : 0.45f);
         int m = unit / 24;
