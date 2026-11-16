@@ -11,9 +11,9 @@ Dual-screen Wizard101 on the **AYN Thor** (Android 13, Snapdragon 8 Gen 2), runn
 | Game runs on the Thor (top screen, 1080p) | ✅ |
 | **Quick launcher**: press Play → in game, no password typing, no KingsIsle launcher | ✅ `W101Quick.exe` |
 | Controller: run / walk back / turn on the left stick, cursor on the right stick | ✅ profile **v6** |
-| Smooth play (X11 display mode) | ✅ better than gamescope; more tuning planned |
-| Bottom screen | 🟡 a controls reference page and a GameNative fork with a shortcut panel ([roadmap](docs/ROADMAP.md)) |
-| Startup time | 🔴 about 2 minutes to character select ([why](docs/FINDINGS.md#slow-startup)) |
+| Smooth play | ✅ X11 display mode + launcher 1.6 file-lookup fix; some stutter remains (the game is CPU-bound under FEX) |
+| Bottom screen | ✅ touchpad + keyboard (GameNative *External Display Input → Hybrid*); 🟡 shortcut/card panel planned ([roadmap](docs/ROADMAP.md)) |
+| Startup time | 🟡 about 1½ minutes to character select, was about 3 ([why](docs/FINDINGS.md#slow-startup)) |
 
 ## Quick start
 
