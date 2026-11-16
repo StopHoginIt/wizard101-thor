@@ -4,7 +4,7 @@ Goal: **dual-screen Wizard101 on the AYN Thor with full controller support, runn
 
 ## The bottom screen
 
-- [x] **W101 Panel** (0.4): shortcut buttons on the bottom screen over GameNative's touchpad; keys go through W101Quick 1.7's local bridge. Next: card helper (tap a spell card by slot in battle), customizable buttons.
+- [x] **W101 Panel** (0.8): Wizard101-styled shortcut tiles; in battle, the hand on the bottom screen (tap to cast, hold to discard), Pass/Draw/Flee, and tap-to-target. Next: customizable tiles, pips/health readout, bigger card art (raise the game's render size).
 
 Hardware: 3.92″ AMOLED touchscreen, 1080×1240, 60 Hz. Android treats the **top** screen as the main display and the bottom as an *external* (secondary) display, so apps that support external displays can draw there.
 

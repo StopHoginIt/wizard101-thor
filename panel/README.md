@@ -1,36 +1,31 @@
-# W101 Panel (bottom-screen buttons)
+# W101 Panel (bottom-screen buttons and card helper)
 
-A tiny Android app that puts a strip of Wizard101 shortcut buttons on the AYN Thor's **bottom screen**, on top of GameNative's bottom-screen touchpad.
+A small Android app that turns the AYN Thor's **bottom screen** into a Wizard101 control panel, styled after the game's own UI (indigo panels, gold trim, brown battle buttons). It sits on top of GameNative's bottom-screen touchpad, which still works below it.
 
-```
- bottom screen
-┌──────────────────────────────────────────────┐
-│ Backpack  Spells  Quests  Map  Potion  Pet   │  ← W101 Panel (overlay)
-│ Mark  Recall  Home  Friends  Chat  Esc       │
-│                       ● game  [▲ hide] [✕]   │
-│                                              │
-│        GameNative touchpad (still works)     │
-│                                     [⌨]      │
-└──────────────────────────────────────────────┘
-```
+**Exploring:** shortcut tiles: Backpack, Spells, Quests, Map, Potion, Pet, Mark, Recall, Home, Friends, Chat, Menu.
+
+**In battle** (it switches by itself when you're choosing spells):
+- Your **hand** appears on the bottom screen. **Tap a card** to cast it, **hold** one to discard it.
+- **PASS / DRAW / FLEE** buttons.
+- After casting, a still picture of the battle appears: **tap who the spell is for**. Spells that need no target skip this. Then a small "Casting…" banner shows until your next turn.
 
 ## How it works
 
-1. The app draws an **overlay window** on the second display. It's *not focusable*, so the controller keeps driving the game after you tap a button, and touches below the strip go to GameNative's touchpad.
-2. Each button sends one UDP message, like `w101 key backpack`, to `127.0.0.1:47101` on the Thor itself.
-3. **W101Quick** (1.7 or newer), which is still running inside GameNative/Wine next to the game, listens on that address. It presses the matching key in Wizard101 with Windows' `SendInput`. Only a fixed list of named actions is accepted (see `launcher/panel.go`), and only from the Thor itself.
+1. **Seeing the hand.** With your permission (Android's "Start recording or casting" prompt, once per panel start), the app takes a snapshot of the top screen about every 0.7 s. Nothing is saved or sent anywhere. In spell selection Wizard101 draws one centred row: the red deck box ("Cards 4 of 11") and then up to 7 cards. So the deck box's position tells how many cards you hold, and where each one is (`HandReader.java` has the measurements).
+2. **Clicking in the game.** Each tap sends one UDP message (`w101 key backpack`, `w101 click 0.3771 0.4981`, …) to `127.0.0.1:47101` on the Thor. **W101Quick** (1.8+), still running inside GameNative/Wine next to the game, presses that key or clicks that spot with Windows' `SendInput`, then puts your mouse pointer back where it was. Only named keys and clicks are accepted, and only from the Thor itself (`launcher/panel.go`).
+3. **Never in the way.** The panel is a non-focusable overlay window, so the controller keeps driving the game after you tap it.
 
-"● game" means the launcher answered; "○ no game" means Wizard101 isn't running through W101Quick.
+Screen capture has to happen on the Android side: inside Wine, GDI capture of the game (rendered by DXVK) is just black.
 
 ## Install and use
 
 - Install `W101Panel.apk` from a release (or run `laptop\Install-Panel.cmd`).
 - Open **W101 Panel** once and allow *Display over other apps*.
-- Start Wizard101 in GameNative, then open **W101 Panel**: the buttons appear on the bottom screen.
-- **▲ hide** shrinks it to a small "▼ panel" tab; opening the app again also brings it back. **Hold ✕** to remove it (or use *Stop* in its notification).
-- For the touchpad under the buttons: GameNative container settings → Controller → *External Display Input* → *Hybrid*.
+- Start Wizard101 in GameNative, then open **W101 Panel** and tap *Start now* on Android's screen-capture prompt (*Cancel* still gives you the shortcut tiles).
+- **▲ Hide** shrinks it to a small "▼ Spellbook" tab; opening the app again also brings it back. **Hold ✕** to remove it (or use *Stop* in its notification).
+- For the touchpad under the panel: GameNative container settings → Controller → *External Display Input* → *Hybrid*.
 
-Turn the launcher side off by putting an empty `no-panel.txt` next to `W101Quick.exe`.
+Turn the launcher side off with an empty `no-panel.txt` next to `W101Quick.exe`.
 
 ## Build
 

@@ -476,6 +476,9 @@ public class PanelService extends Service {
             if ((mode != Mode.TARGET && mode != Mode.WAIT) || handGoneSinceCast) setMode(Mode.BATTLE);
         } else if (mode == Mode.TARGET || mode == Mode.WAIT) {
             handGoneSinceCast = true;
+            // While you pick a target the hand stays on screen; if it's gone, the spell
+            // needed no target and is already being cast.
+            if (mode == Mode.TARGET) setMode(Mode.WAIT);
             if (now - lastHandSeen > TARGET_TIMEOUT_MS) setMode(Mode.EXPLORE); // the battle is over
         } else if (mode == Mode.BATTLE) {
             setMode(Mode.EXPLORE);
