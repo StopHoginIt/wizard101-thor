@@ -43,9 +43,16 @@ final class Capture {
             @Override public void onStop() { release(); }
         }, handler);
 
-        Display main = ctx.getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY);
+        // Size the capture like the game's screen: the largest display (the Thor's top screen).
+        // DEFAULT_DISPLAY alone isn't reliable here: depending on how the panel was started it can
+        // report the bottom screen's 1240x1080, which letterboxes the game into the frame.
         DisplayMetrics m = new DisplayMetrics();
-        main.getRealMetrics(m);
+        ctx.getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY).getRealMetrics(m);
+        for (Display d : ctx.getSystemService(DisplayManager.class).getDisplays()) {
+            DisplayMetrics dm = new DisplayMetrics();
+            d.getRealMetrics(dm);
+            if ((long) dm.widthPixels * dm.heightPixels > (long) m.widthPixels * m.heightPixels) m = dm;
+        }
         int w = Math.max(m.widthPixels, m.heightPixels);   // the Thor's top screen is used in landscape
         int h = Math.min(m.widthPixels, m.heightPixels);
         reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2);
@@ -95,8 +102,14 @@ final class Capture {
         int padded = rowStride / pixelStride;
         Bitmap b = Bitmap.createBitmap(padded, h, Bitmap.Config.ARGB_8888);
         b.copyPixelsFromBuffer(buf);
-        if (padded == w) return b;
-        Bitmap c = Bitmap.createBitmap(b, 0, 0, w, h);
+        // The game is 16:9. If the capture surface has another shape, the mirror is letterboxed
+        // (black bars above and below, or at the sides); keep only the picture so every reader's
+        // 1920x1080 positions line up.
+        int cx = 0, cy = 0, cw = w, ch = h;
+        if (w * 9 < h * 16 - 16) { ch = Math.round(w * 9f / 16f); cy = (h - ch) / 2; }
+        else if (w * 9 > h * 16 + 16) { cw = Math.round(h * 16f / 9f); cx = (w - cw) / 2; }
+        if (padded == w && cx == 0 && cy == 0 && cw == w && ch == h) return b;
+        Bitmap c = Bitmap.createBitmap(b, cx, cy, cw, ch);
         b.recycle();
         return c;
     }
