@@ -17,6 +17,11 @@ final class Bridge {
 
     private static final ExecutorService IO = Executors.newSingleThreadExecutor();
 
+    // W101Quick listens on IPv4 only. (On Android, InetAddress.getLoopbackAddress() is ::1.)
+    private static InetAddress launcher() throws java.net.UnknownHostException {
+        return InetAddress.getByAddress(new byte[] {127, 0, 0, 1});
+    }
+
     interface PingResult { void onResult(String launcherVersion); }
 
     private Bridge() {}
@@ -27,7 +32,7 @@ final class Bridge {
         IO.execute(() -> {
             try (DatagramSocket s = new DatagramSocket()) {
                 byte[] b = msg.getBytes(StandardCharsets.US_ASCII);
-                s.send(new DatagramPacket(b, b.length, InetAddress.getLoopbackAddress(), PORT));
+                s.send(new DatagramPacket(b, b.length, launcher(), PORT));
             } catch (Exception ignored) {
             }
         });
@@ -40,7 +45,7 @@ final class Bridge {
             try (DatagramSocket s = new DatagramSocket()) {
                 s.setSoTimeout(800);
                 byte[] b = "w101 ping".getBytes(StandardCharsets.US_ASCII);
-                s.send(new DatagramPacket(b, b.length, InetAddress.getLoopbackAddress(), PORT));
+                s.send(new DatagramPacket(b, b.length, launcher(), PORT));
                 byte[] buf = new byte[64];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
                 s.receive(p);
