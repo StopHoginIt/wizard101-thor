@@ -12,7 +12,7 @@ Dual-screen Wizard101 on the **AYN Thor** (Android 13, Snapdragon 8 Gen 2), runn
 | **Quick launcher**: press Play → in game, no password typing, no KingsIsle launcher | ✅ `W101Quick.exe` |
 | Controller: run / walk back / turn on the left stick, cursor on the right stick | ✅ profile **v6** |
 | Smooth play | ✅ X11 display mode + launcher 1.6 file-lookup fix; some stutter remains (the game is CPU-bound under FEX) |
-| Bottom screen | ✅ touchpad + keyboard (GameNative *External Display Input → Hybrid*); 🟡 shortcut/card panel planned ([roadmap](docs/ROADMAP.md)) |
+| Bottom screen | ✅ touchpad + keyboard (GameNative *Hybrid*) and **W101 Panel** shortcut buttons ([panel/](panel)) |
 | Startup time | 🟡 about 1½ minutes to character select, was about 3 ([why](docs/FINDINGS.md#slow-startup)) |
 
 ## Quick start
@@ -44,6 +44,7 @@ Full walkthrough: **[docs/SETUP.md](docs/SETUP.md)**. In short:
 | Path | What it is |
 |---|---|
 | [`launcher/`](launcher) | **W101Quick**: a quick-login launcher (Go, Win32 UI that runs under Wine). See [launcher/README.md](launcher/README.md). |
+| [`panel/`](panel) | **W101 Panel**: Android app with Wizard101 shortcut buttons on the bottom screen. |
 | [`profiles/`](profiles) | GameNative control profiles (`.icp`). |
 | [`tools/`](tools) | The profile generator and validator. |
 | [`companion/`](companion) | Controls reference and notes page for the bottom screen. |
