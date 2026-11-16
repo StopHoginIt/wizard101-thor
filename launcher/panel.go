@@ -16,6 +16,7 @@ package main
 //	w101 key <action>         -> presses the key(s) for a named action
 //	w101 click <x> <y> [r]    -> clicks at x,y (0..1 of the screen); "r" = right button
 //	w101 battle               -> "a battle is on" (sent every second or so; pauses stick turning)
+//	w101 stick <name> <value> -> live stick tuning: speed, deadzone, walk
 //
 // Only the named actions below are accepted, and the socket is bound to the
 // loopback address, so nothing outside the Thor can reach it.
@@ -224,6 +225,12 @@ func runPanelBridge(done <-chan struct{}) {
 			if len(f) == 3 {
 				if a, ok := panelActions[f[2]]; ok {
 					pressAction(a)
+				}
+			}
+		case "stick":
+			if len(f) == 4 {
+				if v, err := strconv.ParseFloat(f[3], 64); err == nil && v >= 0 && v <= 50 {
+					setStickValue(f[2], v)
 				}
 			}
 		case "battle":

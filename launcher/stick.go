@@ -18,8 +18,9 @@ package main
 // During a battle (the W101 Panel reports it) turning is off: a right-click
 // there would discard the card under the pointer.
 //
-// Tuning lives in stick.txt next to the launcher ("speed 12", "deadzone 0.15"),
-// and no-stick.txt turns the whole thing off.
+// Tuning lives in stick.txt next to the launcher ("speed 5", "deadzone 0.15",
+// "walk 0.4"); it's re-read while the game runs, and "w101 stick speed 4" over
+// the panel bridge changes it on the fly. no-stick.txt turns the whole thing off.
 
 import (
 	"bufio"
@@ -38,7 +39,28 @@ var (
 	xinputFallback  = syscall.NewLazyDLL("xinput1_3.dll")
 	pXInputGetState *syscall.LazyProc
 	battleUntil     atomic.Int64 // unix ms; the panel refreshes it while you're in a battle
+	stickOverride   atomic.Value // stickTuning set over the bridge, or nil
 )
+
+// setStickValue changes one tuning value live (from "w101 stick <name> <value>").
+func setStickValue(name string, v float64) {
+	t, ok := stickOverride.Load().(stickTuning)
+	if !ok {
+		t = loadStickTuning()
+	}
+	switch name {
+	case "speed":
+		t.speed = v
+	case "deadzone":
+		t.deadzone = v
+	case "walk":
+		t.walk = v
+	default:
+		return
+	}
+	stickOverride.Store(t)
+	logf("stick: %s = %.2f", name, v)
+}
 
 const (
 	vkW = 'W'
@@ -52,7 +74,7 @@ type stickTuning struct {
 }
 
 func loadStickTuning() stickTuning {
-	t := stickTuning{speed: 12, deadzone: 0.15, walk: 0.4}
+	t := stickTuning{speed: 5, deadzone: 0.15, walk: 0.4}
 	f, err := os.Open(filepath.Join(exeDir(), "stick.txt"))
 	if err != nil {
 		return t
@@ -109,6 +131,7 @@ func runStick(done <-chan struct{}) {
 	}
 	t := loadStickTuning()
 	logf("stick: analog movement on (speed %.1f, deadzone %.2f)", t.speed, t.deadzone)
+	lastLoad := time.Now()
 
 	var wDown, sDown, rmbDown bool
 	var still time.Time
@@ -137,6 +160,12 @@ func runStick(done <-chan struct{}) {
 		case <-done:
 			return
 		case <-tick.C:
+		}
+		if o, ok := stickOverride.Load().(stickTuning); ok {
+			t = o
+		} else if time.Since(lastLoad) > 2*time.Second {
+			t = loadStickTuning()
+			lastLoad = time.Now()
 		}
 		x, y, ok := readStick()
 		if !ok {
