@@ -163,7 +163,10 @@ func clickAt(x, y float64, right bool) {
 	}
 	px, py, havePos := cursorFraction()
 	defer func() {
-		time.Sleep(30 * time.Millisecond)
+		// Wizard101 picks 3D targets (players, enemies) from where the pointer is
+		// when it handles the release, which can be a few frames later during a
+		// slow frame. Give it time before moving the pointer back.
+		time.Sleep(350 * time.Millisecond)
 		switch {
 		case !havePos:
 		case py > 0.42 && py < 0.58:
@@ -177,10 +180,15 @@ func clickAt(x, y float64, right bool) {
 	if right {
 		down, up = mouseRightDown, mouseRightUp
 	}
+	// Arrive, nudge (so the game sees the pointer over the target), then click.
 	sendInputs(mouseInput(ax, ay, mouseMove|mouseAbsolute))
-	time.Sleep(40 * time.Millisecond)
+	time.Sleep(60 * time.Millisecond)
+	sendInputs(mouseInput(ax+40, ay+40, mouseMove|mouseAbsolute))
+	time.Sleep(30 * time.Millisecond)
+	sendInputs(mouseInput(ax, ay, mouseMove|mouseAbsolute))
+	time.Sleep(90 * time.Millisecond)
 	sendInputs(mouseInput(ax, ay, down|mouseAbsolute))
-	time.Sleep(120 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 	sendInputs(mouseInput(ax, ay, up|mouseAbsolute))
 }
 

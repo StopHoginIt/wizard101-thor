@@ -75,15 +75,17 @@ public class PanelService extends Service {
     private long lastHandSeen, fastUntil, lastTargetFrame;
     private boolean handGoneSinceCast;
     private HandReader.Hand lastRead;
+    private boolean connected;
+    private int statTick;
+    private int health = -1, mana = -1, potions = -1;
     private TextView waitBanner;
     private static final long TARGET_TIMEOUT_MS = 40_000;
 
     private final Runnable pinger = new Runnable() {
         @Override public void run() {
             Bridge.ping(v -> main.post(() -> {
-                if (status == null) return;
-                status.setText(v != null ? "● game" : "○ no game");
-                status.setTextColor(v != null ? 0xFF7CE38B : 0xFFB0B0B0);
+                connected = v != null;
+                updateStatus();
             }));
             main.postDelayed(this, 3000);
         }
@@ -95,6 +97,10 @@ public class PanelService extends Service {
             final int tw = targetImageWidth();
             capture.snapshot(frame -> {
                 HandReader.Hand h = HandReader.read(frame);
+                if (statTick++ % 3 == 0) {
+                    final boolean inBattle = h.n > 0;
+                    Stats.read(frame, st -> main.post(() -> onStats(st, inBattle)));
+                }
                 Bitmap small = Bitmap.createScaledBitmap(frame, tw, Math.round(tw * frame.getHeight() / (float) frame.getWidth()), true);
                 frame.recycle();
                 main.post(() -> { showHand(h); showFrame(small); });
@@ -186,8 +192,9 @@ public class PanelService extends Service {
         target.setVisibility(View.GONE);
         waitBanner = new TextView(ctx);
         Style.lettering(waitBanner, unit * 0.3f, Style.GOLD_LIGHT);
-        waitBanner.setText("✦ Casting… your cards come back next round ✦");
+        waitBanner.setText("✦ Casting…  (tap here for your cards) ✦");
         waitBanner.setVisibility(View.GONE);
+        waitBanner.setOnClickListener(x -> { if (hand.n > 0) { setMode(Mode.BATTLE); render(hand); } });
         content.addView(explore);
         content.addView(battle);
         content.addView(target);
@@ -223,10 +230,11 @@ public class PanelService extends Service {
         bar.addView(title, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, h));
 
         status = new TextView(ctx);
-        status.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, unit * 0.24f);
-        status.setPadding(unit / 4, 0, unit / 4, 0);
+        Style.lettering(status, unit * 0.3f, Style.GOLD_LIGHT);
+        status.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        status.setPadding(unit / 4, 0, unit / 8, 0);
+        status.setSingleLine(true);
         status.setText("…");
-        status.setTextColor(0xFFB0B0B0);
         bar.addView(status, new LinearLayout.LayoutParams(0, h, 1f));
 
         hideButton = tileButton(null, "▲ Hide", v -> toggle());
@@ -313,10 +321,14 @@ public class PanelService extends Service {
         top.setGravity(Gravity.CENTER_VERTICAL);
         TextView hint = new TextView(ctx);
         Style.lettering(hint, unit * 0.26f, Style.GOLD_LIGHT);
-        hint.setText("Tap who the spell is for  ·  no target needed? DONE");
+        hint.setText("Tap who the spell is for");
         top.addView(hint, new LinearLayout.LayoutParams(0, (int) (unit * 0.6f), 1f));
+        TextView cards = battleButton("◀ CARDS", x -> { setMode(Mode.BATTLE); render(hand); });
+        LinearLayout.LayoutParams cpl = new LinearLayout.LayoutParams((int) (unit * 2.0f), (int) (unit * 0.6f));
+        cpl.setMargins(0, 0, unit / 8, 0);
+        top.addView(cards, cpl);
         TextView back = battleButton("DONE", x -> setMode(Mode.WAIT));
-        top.addView(back, new LinearLayout.LayoutParams((int) (unit * 1.8f), (int) (unit * 0.6f)));
+        top.addView(back, new LinearLayout.LayoutParams((int) (unit * 1.6f), (int) (unit * 0.6f)));
         v.addView(top, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
         FrameLayout f = new FrameLayout(ctx);
@@ -497,6 +509,29 @@ public class PanelService extends Service {
             p.setMargins(m, 0, m, 0);
             cardRow.addView(cardView(i, h.cards[i]), p);
         }
+    }
+
+    private void onStats(Stats st, boolean inBattle) {
+        if (st.health >= 0) health = st.health;
+        if (st.mana >= 0) mana = st.mana;
+        // The potion bottles are only drawn outside battle.
+        if (!inBattle && mode == Mode.EXPLORE && st.potions >= 0) potions = st.potions;
+        updateStatus();
+    }
+
+    private void updateStatus() {
+        if (status == null) return;
+        if (!connected) {
+            status.setText("○ no game");
+            status.setTextColor(0xFFB0B0B0);
+            return;
+        }
+        StringBuilder b = new StringBuilder();
+        if (health >= 0) b.append("❤ ").append(health).append("   ");
+        if (mana >= 0) b.append("💧 ").append(mana).append("   ");
+        if (potions >= 0) b.append("🧪 ").append(potions);
+        status.setText(b.length() > 0 ? b.toString().trim() : "● game");
+        status.setTextColor(Style.GOLD_LIGHT);
     }
 
     private void setMode(Mode m) {
