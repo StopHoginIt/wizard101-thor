@@ -27,7 +27,7 @@ import (
 	"unsafe"
 )
 
-const version = "2.3"
+const version = "2.4"
 
 const (
 	idOK       = 1

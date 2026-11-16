@@ -155,11 +155,17 @@ func runStick(done <-chan struct{}) {
 
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
+	wasBattle := false
 	for {
 		select {
 		case <-done:
 			return
 		case <-tick.C:
+		}
+		if b := inBattle(); b != wasBattle {
+			// Logged so a late "battle over" can be matched against the panel's log.
+			logf("stick: battle %v", b)
+			wasBattle = b
 		}
 		if o, ok := stickOverride.Load().(stickTuning); ok {
 			t = o

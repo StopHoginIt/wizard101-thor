@@ -104,6 +104,7 @@ public class PanelService extends Service {
             capture.snapshot(frame -> {
                 HandReader.Hand h = HandReader.read(frame);
                 final boolean book = h.n == 0 && HandReader.spellbookVisible(frame);
+                if (watchingBattleEnd && h.n == 0) saveCorner(frame, book);
                 // Read stats as soon as a round's cards appear (pips change every round),
                 // then every few snapshots.
                 // A new round: cards back after being gone for a few snapshots (not a one-frame miss).
@@ -122,6 +123,40 @@ public class PanelService extends Service {
             main.postDelayed(this, now < fastUntil ? 250 : 700);
         }
     };
+
+    // Debugging the end of a battle: while the panel waits for a fight to finish, it logs the
+    // spellbook scores and keeps the last few pictures of the bottom-right corner in
+    // Android/data/<this app>/files/debug (readable over adb, nothing leaves the device).
+    private volatile boolean watchingBattleEnd;
+    private long lastCornerSave;
+
+    private void saveCorner(Bitmap frame, boolean book) {
+        long now = System.currentTimeMillis();
+        if (now - lastCornerSave < 1000) return;
+        lastCornerSave = now;
+        android.util.Log.i("W101Panel", "end-watch: book=" + book + " maroon=" + HandReader.lastMaroonPct
+                + "% gold=" + HandReader.lastGoldPct + "% frame=" + frame.getWidth() + "x" + frame.getHeight());
+        try {
+            java.io.File dir = getExternalFilesDir("debug");
+            if (dir == null) return;
+            java.io.File[] old = dir.listFiles();
+            if (old != null && old.length > 40) {
+                java.util.Arrays.sort(old, (a, b) -> a.getName().compareTo(b.getName()));
+                for (int i = 0; i < old.length - 40; i++) old[i].delete();
+            }
+            float sx = frame.getWidth() / 1920f, sy = frame.getHeight() / 1080f;
+            int x0 = Math.round(1500 * sx), y0 = Math.round(850 * sy);
+            Bitmap c = Bitmap.createBitmap(frame, x0, y0, frame.getWidth() - x0, frame.getHeight() - y0);
+            String name = new java.text.SimpleDateFormat("HHmmss.SSS", Locale.US).format(new java.util.Date(now))
+                    + "-" + (book ? "book" : "none") + "-m" + HandReader.lastMaroonPct + "-g" + HandReader.lastGoldPct + ".png";
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(new java.io.File(dir, name))) {
+                c.compress(Bitmap.CompressFormat.PNG, 100, out);
+            }
+            c.recycle();
+        } catch (Exception e) {
+            android.util.Log.w("W101Panel", "corner save failed: " + e);
+        }
+    }
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -493,12 +528,15 @@ public class PanelService extends Service {
         // mean the fight is over, so stop waiting for another round right away.
         bookPolls = book ? bookPolls + 1 : 0;
         if (bookPolls >= 2 && (lastHandSeen > 0 || mode != Mode.EXPLORE)) {
+            android.util.Log.i("W101Panel", "battle over: spellbook seen, " + (now - lastHandSeen) + " ms after the last hand");
             lastHandSeen = 0;
             battleStats = false;
             Bridge.send("w101 explore");
             if (mode != Mode.EXPLORE) setMode(Mode.EXPLORE);
+            watchingBattleEnd = false;
             return;
         }
+        watchingBattleEnd = lastHandSeen > 0 || mode != Mode.EXPLORE;
         // Only trust a reading once two in a row agree (cards slide after a discard or cast).
         boolean stable = lastRead != null && lastRead.n == h.n && lastRead.targeting == h.targeting
                 && (h.n == 0 || Math.abs(lastRead.left - h.left) <= 3);

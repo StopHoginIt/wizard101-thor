@@ -71,7 +71,6 @@ final class HandReader {
                 if (r >= 60 && r <= 180 && g < 75 && b < 85 && r > 1.7f * g) maroon++;
             }
         }
-        if (maroon < total * 0.3f) return false;
         int gold = 0, gtotal = 0;
         for (int y = 980; y < 1012; y += 2) {
             for (int x = 1805; x < 1837; x += 2) {
@@ -81,8 +80,13 @@ final class HandReader {
                 if (r > 150 && g > 90 && b < 90 && r > b + 80) gold++;
             }
         }
-        return gold > gtotal / 20; // the book scores about 12%
+        lastMaroonPct = Math.round(100f * maroon / total);
+        lastGoldPct = Math.round(100f * gold / gtotal);
+        return maroon >= total * 0.3f && gold > gtotal / 20; // the book scores about 52% and 12%
     }
+
+    /** The last spellbook scores, in percent (for the panel's log). */
+    static volatile int lastMaroonPct, lastGoldPct;
 
     private static boolean targeting(Bitmap screen, float sx, float sy) {
         int y = Math.round(HINT_Y * sy), first = -1, count = 0;
