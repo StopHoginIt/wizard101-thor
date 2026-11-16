@@ -77,7 +77,7 @@ public class PanelService extends Service {
     private HandReader.Hand lastRead;
     private boolean connected;
     private int statTick;
-    private volatile boolean handWasUp;
+    private volatile int handGonePolls = 3;
     private int health = -1, mana = -1, potions = -1, maxHealth = -1;
     private int normalPips = -1, powerPips = -1;
     private boolean battleStats;   // show pips (we're in a battle)
@@ -104,11 +104,13 @@ public class PanelService extends Service {
                 HandReader.Hand h = HandReader.read(frame);
                 // Read stats as soon as a round's cards appear (pips change every round),
                 // then every few snapshots.
-                boolean newRound = h.n > 0 && !handWasUp;
-                handWasUp = h.n > 0;
+                // A new round: cards back after being gone for a few snapshots (not a one-frame miss).
+                boolean newRound = h.n > 0 && handGonePolls >= 3;
+                handGonePolls = h.n > 0 ? 0 : handGonePolls + 1;
                 if (newRound || statTick++ % 3 == 0) {
                     final boolean inBattle = h.n > 0;
-                    Stats.read(frame, inBattle, st -> main.post(() -> onStats(st, inBattle)));
+                    final boolean roundStart = newRound;
+                    Stats.read(frame, inBattle, st -> main.post(() -> onStats(st, inBattle, roundStart)));
                 }
                 Bitmap small = Bitmap.createScaledBitmap(frame, tw, Math.round(tw * frame.getHeight() / (float) frame.getWidth()), true);
                 frame.recycle();
@@ -534,14 +536,25 @@ public class PanelService extends Service {
         }
     }
 
-    private void onStats(Stats st, boolean inBattle) {
+    private void onStats(Stats st, boolean inBattle, boolean roundStart) {
+        long now = System.currentTimeMillis();
         if (st.health >= 0) health = st.health;
         if (st.mana >= 0) mana = st.mana;
         if (st.maxHealth > 0) maxHealth = st.maxHealth;
-        battleStats = inBattle || mode == Mode.TARGET || mode == Mode.WAIT;
-        if (inBattle && st.normalPips >= 0) { normalPips = st.normalPips; powerPips = st.powerPips; }
+        // In a battle from the first hand until 40 s after the last one (the end of the fight).
+        battleStats = inBattle || (lastHandSeen > 0 && now - lastHandSeen < TARGET_TIMEOUT_MS);
+        if (inBattle && st.normalPips >= 0) {
+            // Pips are set when a round starts and can't go up until the next one, so keep the
+            // round's best reading: a reading taken while the nameplate is covered or fading
+            // can't knock the count down.
+            if (roundStart || normalPips < 0) { normalPips = 0; powerPips = 0; }
+            if (st.normalPips + 2 * st.powerPips > normalPips + 2 * powerPips) {
+                normalPips = st.normalPips;
+                powerPips = st.powerPips;
+            }
+        }
         // The potion bottles are only drawn outside battle.
-        if (!inBattle && mode == Mode.EXPLORE && st.potions >= 0) potions = st.potions;
+        if (!battleStats && st.potions >= 0) potions = st.potions;
         updateStatus();
     }
 
