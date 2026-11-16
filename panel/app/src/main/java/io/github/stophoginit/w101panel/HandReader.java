@@ -54,6 +54,36 @@ final class HandReader {
         return r > 70 && r > g * 1.8f && r > b * 1.8f;
     }
 
+    /**
+     * True when the spellbook button (bottom-right of the world HUD) is on screen. The game hides it
+     * for the whole of a battle, so seeing it means the fight is over. Measured at 1920x1080: a maroon
+     * cover over x 1790..1850, y 950..1040 with a gold swirl around (1821, 996). World screenshots
+     * score about 52% maroon and 139 gold pixels; battle screenshots score 0 and 0.
+     */
+    static boolean spellbookVisible(Bitmap screen) {
+        float sx = screen.getWidth() / REF_W, sy = screen.getHeight() / REF_H;
+        int maroon = 0, total = 0;
+        for (int y = 950; y < 1040; y += 3) {
+            for (int x = 1790; x < 1850; x += 3) {
+                int c = screen.getPixel(Math.min(screen.getWidth() - 1, Math.round(x * sx)), Math.min(screen.getHeight() - 1, Math.round(y * sy)));
+                int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+                total++;
+                if (r >= 60 && r <= 180 && g < 75 && b < 85 && r > 1.7f * g) maroon++;
+            }
+        }
+        if (maroon < total * 0.3f) return false;
+        int gold = 0, gtotal = 0;
+        for (int y = 980; y < 1012; y += 2) {
+            for (int x = 1805; x < 1837; x += 2) {
+                int c = screen.getPixel(Math.round(x * sx), Math.round(y * sy));
+                int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+                gtotal++;
+                if (r > 150 && g > 90 && b < 90 && r > b + 80) gold++;
+            }
+        }
+        return gold > gtotal / 20; // the book scores about 12%
+    }
+
     private static boolean targeting(Bitmap screen, float sx, float sy) {
         int y = Math.round(HINT_Y * sy), first = -1, count = 0;
         for (int x = Math.round(700 * sx); x < Math.round(1300 * sx); x++) {

@@ -82,6 +82,7 @@ public class PanelService extends Service {
     private int normalPips = -1, powerPips = -1;
     private boolean battleStats;   // show pips (we're in a battle)
     private long castUntil, noHandSince, shownAt, lastBattlePing;
+    private int bookPolls;
     private HandReader.Hand shown;
     private TextView waitBanner;
     private static final long TARGET_TIMEOUT_MS = 40_000;
@@ -102,6 +103,7 @@ public class PanelService extends Service {
             final int tw = targetImageWidth();
             capture.snapshot(frame -> {
                 HandReader.Hand h = HandReader.read(frame);
+                final boolean book = h.n == 0 && HandReader.spellbookVisible(frame);
                 // Read stats as soon as a round's cards appear (pips change every round),
                 // then every few snapshots.
                 // A new round: cards back after being gone for a few snapshots (not a one-frame miss).
@@ -114,7 +116,7 @@ public class PanelService extends Service {
                 }
                 Bitmap small = Bitmap.createScaledBitmap(frame, tw, Math.round(tw * frame.getHeight() / (float) frame.getWidth()), true);
                 frame.recycle();
-                main.post(() -> { showHand(h); showFrame(small); });
+                main.post(() -> { showHand(h, book); showFrame(small); });
             });
             long now = System.currentTimeMillis();
             main.postDelayed(this, now < fastUntil ? 250 : 700);
@@ -483,17 +485,27 @@ public class PanelService extends Service {
         main.post(poll);
     }
 
-    private void showHand(HandReader.Hand h) {
+    private void showHand(HandReader.Hand h, boolean book) {
         if (root == null) return;
         long now = System.currentTimeMillis();
         boolean inBattle = h.n > 0;
+        // The world HUD's spellbook button is hidden for a whole battle; two sightings in a row
+        // mean the fight is over, so stop waiting for another round right away.
+        bookPolls = book ? bookPolls + 1 : 0;
+        if (bookPolls >= 2 && (lastHandSeen > 0 || mode != Mode.EXPLORE)) {
+            lastHandSeen = 0;
+            battleStats = false;
+            Bridge.send("w101 explore");
+            if (mode != Mode.EXPLORE) setMode(Mode.EXPLORE);
+            return;
+        }
         // Only trust a reading once two in a row agree (cards slide after a discard or cast).
         boolean stable = lastRead != null && lastRead.n == h.n && lastRead.targeting == h.targeting
                 && (h.n == 0 || Math.abs(lastRead.left - h.left) <= 3);
         lastRead = h;
         if (!stable) return;
 
-        if (inBattle || (lastHandSeen > 0 && now - lastHandSeen < TARGET_TIMEOUT_MS && mode != Mode.EXPLORE)) {
+        if (inBattle || (lastHandSeen > 0 && now - lastHandSeen < TARGET_TIMEOUT_MS && mode != Mode.EXPLORE && bookPolls == 0)) {
             // Tell the launcher a battle is on, so the stick doesn't turn with the right mouse
             // button (a right-click there discards a card).
             if (now - lastBattlePing > 1000) { Bridge.send("w101 battle"); lastBattlePing = now; }

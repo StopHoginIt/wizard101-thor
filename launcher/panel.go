@@ -236,6 +236,9 @@ func runPanelBridge(done <-chan struct{}) {
 		case "battle":
 			// The panel says a battle is on; keep the stick from right-clicking for a few seconds.
 			battleUntil.Store(time.Now().Add(3 * time.Second).UnixMilli())
+		case "explore":
+			// The panel saw the world HUD again: the battle is over, so turning works at once.
+			battleUntil.Store(0)
 		case "click":
 			if len(f) >= 4 {
 				x, e1 := strconv.ParseFloat(f[2], 64)
