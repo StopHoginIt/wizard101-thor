@@ -99,7 +99,9 @@ public class PanelService extends Service {
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
-            if (capture == null || !capture.alive() || collapsed) { polling = false; return; }
+            // Without the card view, keep reading while folded away: the battle signal protects
+            // the cards from the stick's right-click even when the panel is hidden.
+            if (capture == null || !capture.alive() || (collapsed && SHOW_CARDS)) { polling = false; return; }
             final int tw = targetImageWidth();
             capture.snapshot(frame -> {
                 HandReader.Hand h = HandReader.read(frame);
@@ -113,6 +115,11 @@ public class PanelService extends Service {
                     final boolean inBattle = h.n > 0;
                     final boolean roundStart = newRound;
                     Stats.read(frame, inBattle, st -> main.post(() -> onStats(st, inBattle, roundStart)));
+                }
+                if (!SHOW_CARDS) {
+                    frame.recycle();
+                    main.post(() -> showHand(h, book));
+                    return;
                 }
                 Bitmap small = Bitmap.createScaledBitmap(frame, tw, Math.round(tw * frame.getHeight() / (float) frame.getWidth()), true);
                 frame.recycle();
@@ -485,8 +492,16 @@ public class PanelService extends Service {
         main.post(poll);
     }
 
+    /**
+     * The battle card helper (hand on the bottom screen, tap to cast, targeting). Switched off:
+     * in real fights it couldn't keep up (enchanting, picking with little time left), so battles
+     * now keep the shortcut tiles. The panel still reads the hand to know a battle is on.
+     */
+    private static final boolean SHOW_CARDS = false;
+
     private void showHand(HandReader.Hand h, boolean book) {
         if (root == null) return;
+        if (!SHOW_CARDS) { trackBattle(h, book); return; }
         long now = System.currentTimeMillis();
         boolean inBattle = h.n > 0;
         // The world HUD's spellbook button is hidden for a whole battle; two sightings in a row
@@ -537,6 +552,30 @@ public class PanelService extends Service {
                 setMode(Mode.EXPLORE); // the battle is over
             }
         }
+    }
+
+    /**
+     * Battle tracking without the card view: a battle runs from the first hand until the world
+     * HUD's spellbook button is seen twice in a row (or 40 s after the last hand). While it runs
+     * the launcher is told, so the left stick doesn't right-click (that discards a card), and the
+     * header shows pips instead of potions.
+     */
+    private void trackBattle(HandReader.Hand h, boolean book) {
+        long now = System.currentTimeMillis();
+        bookPolls = book ? bookPolls + 1 : 0;
+        if (bookPolls >= 2 && lastHandSeen > 0) {
+            lastHandSeen = 0;
+            battleStats = false;
+            Bridge.send("w101 explore");
+            updateStatus();
+            return;
+        }
+        boolean stable = lastRead != null && lastRead.n == h.n && (h.n == 0 || Math.abs(lastRead.left - h.left) <= 3);
+        lastRead = h;
+        if (!stable) return;
+        if (h.n > 0) { lastHandSeen = now; hand = h; }
+        boolean battleOn = h.n > 0 || (lastHandSeen > 0 && now - lastHandSeen < TARGET_TIMEOUT_MS && bookPolls == 0);
+        if (battleOn && now - lastBattlePing > 1000) { Bridge.send("w101 battle"); lastBattlePing = now; }
     }
 
     /** Shows hand h on the bottom screen. */

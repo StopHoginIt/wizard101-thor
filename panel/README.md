@@ -1,12 +1,14 @@
-# W101 Panel (bottom-screen buttons and card helper)
+# W101 Panel (bottom-screen buttons)
 
 A small Android app that turns the AYN Thor's **bottom screen** into a Wizard101 control panel, styled after the game's own UI (indigo panels, gold trim, brown battle buttons). It sits on top of GameNative's bottom-screen touchpad, which still works below it.
 
 **Always:** the top bar shows ❤ health, 💧 mana and (outside battle) 🧪 potions; in battle, ❤ health/max and your pips (⚪ normal, 🟡 power), read when each round starts.
 
-**Exploring:** shortcut tiles: Backpack, Spells, Quests, Map, Potion, Pet, Mark, Recall, Home, Friends, Chat, Menu.
+**Shortcut tiles**, in and out of battle: Backpack, Spells, Quests, Map, Potion, Pet, Mark, Recall, Home, Friends, Chat, Menu.
 
-**In battle** (it switches by itself when you're choosing spells):
+**Battles:** the panel notices them (and tells W101Quick, so the left stick never right-clicks and discards a card), shows your pips in the top bar, and otherwise keeps the tiles. It keeps watching even while folded away with ▲ Hide.
+
+**Card helper (switched off since 0.19).** In real fights it couldn't keep up (enchanting, picking with little time left). The code is still here; set `SHOW_CARDS = true` in `PanelService.java` to bring it back. With it on:
 - Your **hand** appears on the bottom screen. **Tap a card** to cast it, **hold** one to discard it.
 - **PASS / DRAW / FLEE** buttons.
 - When a card is chosen (on the panel or in the game) and the game asks for a target, a still picture of the battle appears: **tap who the spell is for**, or **◀ CARDS** to pick another card. Spells that need no target skip this. Then a small "Casting…" banner shows until your next turn.
