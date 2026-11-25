@@ -13,3 +13,10 @@ Build the **arm64** binary for the Thor; the amd64 build hangs under FEX. See [d
 Files: `main.go` (flow and UI), `gui.go` (Win32 helpers), `auth.go` (login), `patch.go` (update check and patcher, approach after cedws/umbra-launcher), `store.go` (config, DPAPI, logging), `extras.go` (overlay, diagnostics export, log mirror, optional key-state monitor).
 
 Flags: `-form` (always show the login form), `-check` (verify files), `-game <dir>`, `-probe` (patch server check only).
+
+## Tuning files (next to W101Quick.exe)
+
+- `stick.txt`: left-stick turning, one setting per line: `speed 3.5`, `deadzone 0.15`, `walk 0.4`. Re-read every 2 s.
+- `click.txt` (2.5+): how panel taps become clicks, in milliseconds: `arrive 30`, `nudge 20`, `settle 40`, `hold 100`, `restore 300`. Re-read when the file changes. Lower `hold` makes clicks quicker, but the game reads the button once per frame, so too short a hold can be missed during a slow frame.
+- Live changes over the panel bridge (127.0.0.1:47101): `w101 stick speed 3`, `w101 clicktune hold 80`.
+- `no-stick.txt` / `no-panel.txt`: turn off the stick loop / the panel bridge.

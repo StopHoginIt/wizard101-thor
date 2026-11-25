@@ -60,12 +60,12 @@ final class HandReader {
      * cover over x 1790..1850, y 950..1040 with a gold swirl around (1821, 996). World screenshots
      * score about 52% maroon and 139 gold pixels; battle screenshots score 0 and 0.
      */
-    static boolean spellbookVisible(Bitmap screen) {
-        float sx = screen.getWidth() / REF_W, sy = screen.getHeight() / REF_H;
+    static boolean spellbookVisible(Frame screen) {
+        float sx = screen.width() / REF_W, sy = screen.height() / REF_H;
         int maroon = 0, total = 0;
         for (int y = 950; y < 1040; y += 3) {
             for (int x = 1790; x < 1850; x += 3) {
-                int c = screen.getPixel(Math.min(screen.getWidth() - 1, Math.round(x * sx)), Math.min(screen.getHeight() - 1, Math.round(y * sy)));
+                int c = screen.argb(Math.round(x * sx), Math.round(y * sy));
                 int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
                 total++;
                 if (r >= 60 && r <= 180 && g < 75 && b < 85 && r > 1.7f * g) maroon++;
@@ -74,7 +74,7 @@ final class HandReader {
         int gold = 0, gtotal = 0;
         for (int y = 980; y < 1012; y += 2) {
             for (int x = 1805; x < 1837; x += 2) {
-                int c = screen.getPixel(Math.round(x * sx), Math.round(y * sy));
+                int c = screen.argb(Math.round(x * sx), Math.round(y * sy));
                 int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
                 gtotal++;
                 if (r > 150 && g > 90 && b < 90 && r > b + 80) gold++;
@@ -88,10 +88,10 @@ final class HandReader {
     /** The last spellbook scores, in percent (for the panel's log). */
     static volatile int lastMaroonPct, lastGoldPct;
 
-    private static boolean targeting(Bitmap screen, float sx, float sy) {
+    private static boolean targeting(Frame screen, float sx, float sy) {
         int y = Math.round(HINT_Y * sy), first = -1, count = 0;
         for (int x = Math.round(700 * sx); x < Math.round(1300 * sx); x++) {
-            int c = screen.getPixel(x, y);
+            int c = screen.argb(x, y);
             int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
             if (r > 200 && g > 200 && b > 200) {
                 if (first < 0) first = x;
@@ -101,16 +101,20 @@ final class HandReader {
         return first >= 0 && first / sx < HINT_TARGET_MAX_LEFT && count / sx > 150;
     }
 
-    static Hand read(Bitmap screen) {
+    /**
+     * Reads the hand. Only the deck box and the hint line are probed (a few hundred pixels);
+     * the card pictures are copied only when cards is true.
+     */
+    static Hand read(Frame screen, boolean cards) {
         Hand h = new Hand();
-        int W = screen.getWidth(), H = screen.getHeight();
+        int W = screen.width(), H = screen.height();
         if (W < 100 || H < 100) return h;
         float sx = W / REF_W, sy = H / REF_H;
         int py = Math.round(DECK_PROBE_Y * sy);
         int need = Math.max(4, Math.round(12 * sx));
         int left = -1, run = 0;
         for (int x = Math.round(0.20f * W); x < Math.round(0.45f * W); x++) {
-            if (deckRed(screen.getPixel(x, py))) {
+            if (deckRed(screen.argb(x, py))) {
                 if (++run >= need) { left = x - run + 1; break; }
             } else {
                 run = 0;
@@ -118,8 +122,8 @@ final class HandReader {
         }
         if (left < 0) return h;
         // The deck box is tall: check the colour also holds a little above and below.
-        if (!deckRed(screen.getPixel(left + need, Math.round((DECK_PROBE_Y - 30) * sy)))
-                && !deckRed(screen.getPixel(left + need, Math.round((DECK_PROBE_Y + 30) * sy)))) {
+        if (!deckRed(screen.argb(left + need, Math.round((DECK_PROBE_Y - 30) * sy)))
+                && !deckRed(screen.argb(left + need, Math.round((DECK_PROBE_Y + 30) * sy)))) {
             return h;
         }
         float leftRef = left / sx;
@@ -131,13 +135,14 @@ final class HandReader {
         h.targeting = targeting(screen, sx, sy);
         h.firstX = leftRef + DECK_TO_CARD + CARD_W / 2f;
         h.cards = new Bitmap[n];
+        if (!cards) return h;
         int cw = Math.round(CARD_W * sx);
         int top = Math.round(CARD_TOP * sy);
         int ch = Math.round((CARD_BOTTOM - CARD_TOP) * sy);
         for (int i = 0; i < n; i++) {
             int x0 = Math.round((h.firstX + i * CARD_PITCH - CARD_W / 2f) * sx);
             x0 = Math.max(0, Math.min(W - cw, x0));
-            h.cards[i] = Bitmap.createBitmap(screen, x0, Math.max(0, Math.min(H - ch, top)), cw, ch);
+            h.cards[i] = screen.crop(x0, Math.max(0, Math.min(H - ch, top)), cw, ch);
         }
         return h;
     }

@@ -65,19 +65,24 @@ public class PanelService extends Service {
 
     private Capture capture;
     private HandReader.Hand hand = new HandReader.Hand();
-    private boolean polling;
+    private volatile boolean cardsOn = true;      // the card view (remembered; header toggle)
+    private volatile boolean wantTargetFrames;     // TARGET mode: stream small pictures of the battle
+    private volatile int targetW = 960;
+    private TextView cardsButton;
+    private final FrameLayout[] cardViews = new FrameLayout[HandReader.MAX_HAND];
+    private final ImageView[] cardImages = new ImageView[HandReader.MAX_HAND];
+    private boolean stickyCards;                  // "◀ CARDS" while the game still wants a target
+    private static final long FAST_MS = 66;        // about 15 frames a second in battle
+    private static final long SLOW_MS = 400;
 
     // TARGET: after casting a card, the bottom screen shows the battle so you can tap who it's for.
     private enum Mode { EXPLORE, BATTLE, TARGET, WAIT }
     private Mode mode = Mode.EXPLORE;
     private LinearLayout target;
     private ImageView targetImage;
-    private long lastHandSeen, fastUntil, lastTargetFrame;
-    private boolean handGoneSinceCast;
+    private long lastHandSeen;
     private HandReader.Hand lastRead;
     private boolean connected;
-    private int statTick;
-    private volatile int handGonePolls = 3;
     private int health = -1, mana = -1, potions = -1, maxHealth = -1;
     private int normalPips = -1, powerPips = -1;
     private boolean battleStats;   // show pips (we're in a battle)
@@ -97,37 +102,46 @@ public class PanelService extends Service {
         }
     };
 
-    private final Runnable poll = new Runnable() {
-        @Override public void run() {
-            // Without the card view, keep reading while folded away: the battle signal protects
-            // the cards from the stick's right-click even when the panel is hidden.
-            if (capture == null || !capture.alive() || (collapsed && SHOW_CARDS)) { polling = false; return; }
-            final int tw = targetImageWidth();
-            capture.snapshot(frame -> {
-                HandReader.Hand h = HandReader.read(frame);
-                final boolean book = h.n == 0 && HandReader.spellbookVisible(frame);
-                // Read stats as soon as a round's cards appear (pips change every round),
-                // then every few snapshots.
-                // A new round: cards back after being gone for a few snapshots (not a one-frame miss).
-                boolean newRound = h.n > 0 && handGonePolls >= 3;
-                handGonePolls = h.n > 0 ? 0 : handGonePolls + 1;
-                if (newRound || statTick++ % 3 == 0) {
-                    final boolean inBattle = h.n > 0;
-                    final boolean roundStart = newRound;
-                    Stats.read(frame, inBattle, st -> main.post(() -> onStats(st, inBattle, roundStart)));
-                }
-                if (!SHOW_CARDS) {
-                    frame.recycle();
-                    main.post(() -> showHand(h, book));
-                    return;
-                }
-                Bitmap small = Bitmap.createScaledBitmap(frame, tw, Math.round(tw * frame.getHeight() / (float) frame.getWidth()), true);
-                frame.recycle();
-                main.post(() -> { showHand(h, book); showFrame(small); });
-            });
-            long now = System.currentTimeMillis();
-            main.postDelayed(this, now < fastUntil ? 250 : 700);
+    // Capture-thread state for the frame listener.
+    private int cN = -1, cLeft = -1, cropNext;
+    private boolean cTarget;
+    private long cropAt, statsAt, targetAt, handGoneSince = 1;
+
+    /**
+     * Runs on the capture thread for every frame handed over (about 15 a second in battle,
+     * 2.5 a second otherwise). Probing the hand costs a few hundred pixel reads; card pictures
+     * are only copied when the layout changes (for two frames, so the steady reading has them)
+     * or every 300 ms to pick up enchantments.
+     */
+    private final Capture.Listener frameListener = f -> {
+        long now = f.time;
+        HandReader.Hand h = HandReader.read(f, false);
+        final boolean book = h.n == 0 && HandReader.spellbookVisible(f);
+        boolean layoutChanged = h.n != cN || h.targeting != cTarget || Math.abs(h.left - cLeft) > 3;
+        cN = h.n; cLeft = h.left; cTarget = h.targeting;
+        if (layoutChanged) cropNext = 2;
+        if (cardsOn && h.n > 0 && (cropNext > 0 || now - cropAt >= 300)) {
+            h = HandReader.read(f, true);
+            cropAt = now;
+            if (cropNext > 0) cropNext--;
         }
+        // A new round: cards back after being gone for a moment (pips change every round).
+        boolean newRound = h.n > 0 && handGoneSince > 0 && now - handGoneSince >= 1500;
+        if (h.n > 0) handGoneSince = 0; else if (handGoneSince == 0) handGoneSince = now;
+        boolean inBattle = h.n > 0;
+        if (newRound || now - statsAt >= (inBattle ? 1000 : 2000)) {
+            statsAt = now;
+            final boolean roundStart = newRound;
+            Stats.read(f.full(), inBattle, st -> main.post(() -> onStats(st, inBattle, roundStart)));
+        }
+        Bitmap small = null;
+        if (wantTargetFrames && now - targetAt >= 120) {
+            targetAt = now;
+            small = f.scaled(targetW);
+        }
+        final HandReader.Hand hf = h;
+        final Bitmap sf = small;
+        main.post(() -> { showHand(hf, book); if (sf != null) showFrame(sf); });
     };
 
     @Override public IBinder onBind(Intent intent) { return null; }
@@ -142,13 +156,14 @@ public class PanelService extends Service {
             try {
                 Intent data = intent.getParcelableExtra(EXTRA_DATA);
                 capture = new Capture(this, intent.getIntExtra(EXTRA_CODE, 0), data);
+                capture.setListener(frameListener);
+                capture.setInterval(SLOW_MS);
             } catch (Exception e) {
                 capture = null;
             }
         }
         if (root == null) show();
         else if (collapsed && ACTION_SHOW.equals(intent != null ? intent.getAction() : null)) toggle();
-        startPolling();
         return START_STICKY;
     }
 
@@ -193,6 +208,8 @@ public class PanelService extends Service {
         DisplayMetrics dmx = ctx.getResources().getDisplayMetrics();
         screenW = dmx.widthPixels;
         unit = Math.max(88, Math.min(dmx.widthPixels, dmx.heightPixels) / 9);
+        cardsOn = getSharedPreferences("panel", MODE_PRIVATE).getBoolean("cards", true);
+        targetW = Math.min(960, targetImageWidth());
 
         root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -214,7 +231,7 @@ public class PanelService extends Service {
         Style.lettering(waitBanner, unit * 0.3f, Style.GOLD_LIGHT);
         waitBanner.setText("✦ Casting…  (tap here for your cards) ✦");
         waitBanner.setVisibility(View.GONE);
-        waitBanner.setOnClickListener(x -> { if (hand.n > 0) { setMode(Mode.BATTLE); render(hand); } });
+        waitBanner.setOnClickListener(x -> { if (hand.n > 0) { setMode(Mode.BATTLE); render(hand, true); } });
         content.addView(explore);
         content.addView(battle);
         content.addView(target);
@@ -256,6 +273,12 @@ public class PanelService extends Service {
         status.setSingleLine(true);
         status.setText("…");
         bar.addView(status, new LinearLayout.LayoutParams(0, h, 1f));
+
+        cardsButton = tileButton(null, "", v -> setCardsOn(!cardsOn));
+        updateCardsButton();
+        LinearLayout.LayoutParams cbp = new LinearLayout.LayoutParams((int) (unit * 1.9f), h);
+        cbp.setMargins(0, 0, unit / 10, 0);
+        bar.addView(cardsButton, cbp);
 
         hideButton = tileButton(null, "▲ Hide", v -> toggle());
         bar.addView(hideButton, new LinearLayout.LayoutParams((int) (unit * 1.8f), h));
@@ -312,6 +335,14 @@ public class PanelService extends Service {
 
         cardRow = new LinearLayout(ctx);
         cardRow.setGravity(Gravity.CENTER);
+        int m = unit / 24;
+        for (int i = 0; i < HandReader.MAX_HAND; i++) {
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(cardWidth() - 2 * m, cardHeight() - unit / 6);
+            p.setMargins(m, 0, m, 0);
+            cardViews[i] = cardView(i);
+            cardViews[i].setVisibility(View.GONE);
+            cardRow.addView(cardViews[i], p);
+        }
         v.addView(cardRow, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, cardHeight()));
 
         LinearLayout buttons = new LinearLayout(ctx);
@@ -343,7 +374,7 @@ public class PanelService extends Service {
         Style.lettering(hint, unit * 0.26f, Style.GOLD_LIGHT);
         hint.setText("Tap who the spell is for");
         top.addView(hint, new LinearLayout.LayoutParams(0, (int) (unit * 0.6f), 1f));
-        TextView cards = battleButton("◀ CARDS", x -> { castUntil = 0; setMode(Mode.BATTLE); render(hand); });
+        TextView cards = battleButton("◀ CARDS", x -> { stickyCards = true; setMode(Mode.BATTLE); render(hand, true); });
         LinearLayout.LayoutParams cpl = new LinearLayout.LayoutParams((int) (unit * 2.0f), (int) (unit * 0.6f));
         cpl.setMargins(0, 0, unit / 8, 0);
         top.addView(cards, cpl);
@@ -367,6 +398,7 @@ public class PanelService extends Service {
                 if (nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1) {
                     iv.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                     clickGame(new float[] {nx, ny}, false);
+                    castUntil = System.currentTimeMillis() + 600; // the game still shows targeting for a moment
                     setMode(Mode.WAIT);
                 }
             }
@@ -427,22 +459,24 @@ public class PanelService extends Service {
         return b;
     }
 
-    private View cardView(int index, Bitmap bmp) {
+    private FrameLayout cardView(int index) {
         FrameLayout f = new FrameLayout(ctx);
         int rim = Math.max(3, unit / 24);
         f.setBackground(Style.frame(0xFF000000, 0xFF000000, unit * 0.08f, rim));
         f.setPadding(rim, rim, rim, rim);
         ImageView img = new ImageView(ctx);
         img.setScaleType(ImageView.ScaleType.FIT_XY);
-        img.setImageBitmap(bmp);
+        cardImages[index] = img;
         f.addView(img);
         final Runnable discard = () -> {
+            if (index >= hand.n) return;
             f.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
             f.setTag("done");
             clickGame(hand.cardPoint(index), true);
             // The game takes a moment to re-deal; show the result straight away.
+            castUntil = System.currentTimeMillis() + 450;
             lastRead = null;
-            render(hand.without(index));
+            render(hand.without(index), true);
         };
         f.setOnTouchListener((v, e) -> {
             if (e.getAction() == MotionEvent.ACTION_DOWN) {
@@ -454,11 +488,12 @@ public class PanelService extends Service {
                 main.removeCallbacks(discard);
                 v.setScaleX(1f);
                 v.setScaleY(1f);
-                if (v.getTag() == null) {
+                if (v.getTag() == null && index < hand.n) {
                     v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                    // Select the card in the game. The panel follows what the game does next
+                    // (target picture, enchant choice, or the hand going away) as soon as it sees it.
+                    stickyCards = false;
                     clickGame(hand.cardPoint(index), false);
-                    castUntil = System.currentTimeMillis() + 1500;
-                    setMode(Mode.TARGET);
                 }
             } else if (e.getAction() == MotionEvent.ACTION_CANCEL) {
                 main.removeCallbacks(discard);
@@ -483,75 +518,96 @@ public class PanelService extends Service {
         hideButton.requestLayout();
         lp.width = collapsed ? WindowManager.LayoutParams.WRAP_CONTENT : WindowManager.LayoutParams.MATCH_PARENT;
         wm.updateViewLayout(root, lp);
-        if (!collapsed) startPolling();
+        updateInterval();
     }
 
-    private void startPolling() {
-        if (polling || capture == null) return;
-        polling = true;
-        main.post(poll);
+    private void setCardsOn(boolean on) {
+        cardsOn = on;
+        getSharedPreferences("panel", MODE_PRIVATE).edit().putBoolean("cards", on).apply();
+        updateCardsButton();
+        if (!on && mode != Mode.EXPLORE) setMode(Mode.EXPLORE);
+        lastRead = null;
+        updateInterval();
     }
 
-    /**
-     * The battle card helper (hand on the bottom screen, tap to cast, targeting). Switched off:
-     * in real fights it couldn't keep up (enchanting, picking with little time left), so battles
-     * now keep the shortcut tiles. The panel still reads the hand to know a battle is on.
-     */
-    private static final boolean SHOW_CARDS = false;
+    private void updateCardsButton() {
+        if (cardsButton != null) cardsButton.setText(cardsOn ? "🃏 Cards ✓" : "🃏 Cards ✕");
+    }
+
+    /** Stream fast while cards are shown in a battle; otherwise a slow look every 0.4 s. */
+    private void updateInterval() {
+        if (capture == null) return;
+        long now = System.currentTimeMillis();
+        boolean battleOn = mode != Mode.EXPLORE
+                || (lastHandSeen > 0 && now - lastHandSeen < TARGET_TIMEOUT_MS && bookPolls == 0);
+        capture.setInterval(cardsOn && !collapsed && battleOn ? FAST_MS : SLOW_MS);
+    }
 
     private void showHand(HandReader.Hand h, boolean book) {
         if (root == null) return;
-        if (!SHOW_CARDS) { trackBattle(h, book); return; }
+        if (!cardsOn || collapsed) trackBattle(h, book);
+        else showHandCards(h, book);
+        updateInterval();
+    }
+
+    /**
+     * The card view. Frames arrive about 15 times a second in battle; a reading counts once two in
+     * a row agree (about 0.15 s). The panel never guesses ahead of the game, except for a discard
+     * (the rest of the hand closes up at once): it shows the target picture only when the game
+     * asks for a target, so an enchantment keeps the hand up for picking the card to enchant.
+     */
+    private void showHandCards(HandReader.Hand h, boolean book) {
         long now = System.currentTimeMillis();
-        boolean inBattle = h.n > 0;
         // The world HUD's spellbook button is hidden for a whole battle; two sightings in a row
         // mean the fight is over, so stop waiting for another round right away.
         bookPolls = book ? bookPolls + 1 : 0;
         if (bookPolls >= 2 && (lastHandSeen > 0 || mode != Mode.EXPLORE)) {
-            android.util.Log.i("W101Panel", "battle over: spellbook seen, " + (now - lastHandSeen) + " ms after the last hand");
             lastHandSeen = 0;
             battleStats = false;
+            stickyCards = false;
             Bridge.send("w101 explore");
             if (mode != Mode.EXPLORE) setMode(Mode.EXPLORE);
             return;
         }
-        // Only trust a reading once two in a row agree (cards slide after a discard or cast).
         boolean stable = lastRead != null && lastRead.n == h.n && lastRead.targeting == h.targeting
                 && (h.n == 0 || Math.abs(lastRead.left - h.left) <= 3);
+        HandReader.Hand prev = lastRead;
         lastRead = h;
         if (!stable) return;
+        // Keep the newest card pictures: frames between picture refreshes carry none.
+        if (h.n > 0 && !hasPictures(h) && prev != null && hasPictures(prev)) h.cards = prev.cards;
 
-        if (inBattle || (lastHandSeen > 0 && now - lastHandSeen < TARGET_TIMEOUT_MS && mode != Mode.EXPLORE && bookPolls == 0)) {
+        if (h.n > 0 || (lastHandSeen > 0 && now - lastHandSeen < TARGET_TIMEOUT_MS && mode != Mode.EXPLORE)) {
             // Tell the launcher a battle is on, so the stick doesn't turn with the right mouse
             // button (a right-click there discards a card).
             if (now - lastBattlePing > 1000) { Bridge.send("w101 battle"); lastBattlePing = now; }
         }
-        if (inBattle) {
+        if (now < castUntil) return; // we just clicked; give the game a moment to catch up
+        if (h.n > 0) {
             noHandSince = 0;
             lastHandSeen = now;
-            hand = h;
-            if (h.targeting) {
-                // A card is chosen (here or in the game) and the game wants a target.
+            if (!h.targeting) stickyCards = false;
+            if (h.targeting && !stickyCards) {
+                hand = h;
                 if (mode != Mode.TARGET) setMode(Mode.TARGET);
-            } else if (mode == Mode.TARGET && now < castUntil) {
-                // We just cast from the panel; the game hasn't caught up yet.
             } else {
-                boolean changed = mode != Mode.BATTLE || shown == null || shown.n != h.n
-                        || Math.abs(shown.left - h.left) > 3 || now - shownAt > 3000;
+                boolean layout = mode != Mode.BATTLE || shown == null || shown.n != h.n
+                        || Math.abs(shown.left - h.left) > 3;
                 if (mode != Mode.BATTLE) setMode(Mode.BATTLE);
-                if (changed) render(h); // redraw only when the hand changed (less flicker)
+                if (layout || (hasPictures(h) && h.cards != shown.cards)) render(h, layout);
             }
         } else {
             if (noHandSince == 0) noHandSince = now;
-            boolean goneAWhile = now - noHandSince > 1200;
-            if (mode == Mode.TARGET && goneAWhile && now >= castUntil) {
-                setMode(Mode.WAIT); // the spell is being cast (it needed no target, or one was picked)
-            } else if (mode == Mode.BATTLE && goneAWhile) {
-                setMode(Mode.EXPLORE);
+            if ((mode == Mode.BATTLE || mode == Mode.TARGET) && now - noHandSince > 700) {
+                setMode(Mode.WAIT); // the spell is being cast, or the round is playing out
             } else if (mode == Mode.WAIT && now - lastHandSeen > TARGET_TIMEOUT_MS) {
                 setMode(Mode.EXPLORE); // the battle is over
             }
         }
+    }
+
+    private static boolean hasPictures(HandReader.Hand h) {
+        return h.cards.length > 0 && h.cards[0] != null;
     }
 
     /**
@@ -578,18 +634,16 @@ public class PanelService extends Service {
         if (battleOn && now - lastBattlePing > 1000) { Bridge.send("w101 battle"); lastBattlePing = now; }
     }
 
-    /** Shows hand h on the bottom screen. */
-    private void render(HandReader.Hand h) {
+    /** Shows hand h on the bottom screen (the card views are reused; only pictures change). */
+    private void render(HandReader.Hand h, boolean layout) {
         hand = h;
         shown = h;
         shownAt = System.currentTimeMillis();
-        cardRow.removeAllViews();
         if (drawButton != null) drawButton.setAlpha(h.n < HandReader.MAX_HAND ? 1f : 0.45f);
-        int m = unit / 24;
-        for (int i = 0; i < h.n; i++) {
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(cardWidth() - 2 * m, cardHeight() - unit / 6);
-            p.setMargins(m, 0, m, 0);
-            cardRow.addView(cardView(i, h.cards[i]), p);
+        for (int i = 0; i < HandReader.MAX_HAND; i++) {
+            boolean on = i < h.n;
+            if (layout) cardViews[i].setVisibility(on ? View.VISIBLE : View.GONE);
+            if (on && i < h.cards.length && h.cards[i] != null) cardImages[i].setImageBitmap(h.cards[i]);
         }
     }
 
@@ -648,24 +702,18 @@ public class PanelService extends Service {
         waitBanner.setVisibility(m == Mode.WAIT ? View.VISIBLE : View.GONE);
         title.setText(m == Mode.EXPLORE ? "✦ Spellbook ✦" : m == Mode.BATTLE ? "✦ Battle ✦"
                 : m == Mode.TARGET ? "✦ Target ✦" : "✦ Battle ✦");
+        wantTargetFrames = m == Mode.TARGET;
         if (m == Mode.TARGET) {
             lastHandSeen = System.currentTimeMillis();
-            lastTargetFrame = 0;
-            handGoneSinceCast = false;
             targetImage.setImageDrawable(null);
+            if (capture != null) capture.poke();
         }
     }
 
+    /** The live target picture (about 8 a second while the game wants a target). */
     private void showFrame(Bitmap small) {
-        long now = System.currentTimeMillis();
-        if (root == null || mode != Mode.TARGET || now - lastTargetFrame < 1500) { small.recycle(); return; }
-        lastTargetFrame = now;
-        android.graphics.drawable.Drawable d = targetImage.getDrawable();
+        if (root == null || mode != Mode.TARGET) return;
         targetImage.setImageBitmap(small);
-        if (d instanceof android.graphics.drawable.BitmapDrawable) {
-            Bitmap b = ((android.graphics.drawable.BitmapDrawable) d).getBitmap();
-            if (b != null && b != small && !b.isRecycled()) b.recycle();
-        }
     }
 
     private void pressBattleButton(String which) {
@@ -675,10 +723,7 @@ public class PanelService extends Service {
 
     private void clickGame(float[] p, boolean right) {
         Bridge.send(String.format(Locale.US, "w101 click %.4f %.4f%s", p[0], p[1], right ? " r" : ""));
-        // Look again quickly for a couple of seconds, so the bottom screen follows the game.
-        fastUntil = System.currentTimeMillis() + 2000;
-        main.removeCallbacks(poll);
-        polling = false;
-        main.postDelayed(this::startPolling, 250);
+        // Look again right away, so the bottom screen follows the game.
+        if (capture != null) capture.poke();
     }
 }

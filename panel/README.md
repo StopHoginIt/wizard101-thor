@@ -6,12 +6,13 @@ A small Android app that turns the AYN Thor's **bottom screen** into a Wizard101
 
 **Shortcut tiles**, in and out of battle: Backpack, Spells, Quests, Map, Potion, Pet, Mark, Recall, Home, Friends, Chat, Menu.
 
-**Battles:** the panel notices them (and tells W101Quick, so the left stick never right-clicks and discards a card), shows your pips in the top bar, and otherwise keeps the tiles. It keeps watching even while folded away with ▲ Hide.
+**Battles:** the panel notices them (and tells W101Quick, so the left stick never right-clicks and discards a card), shows your pips in the top bar, and keeps watching even while folded away with ▲ Hide.
 
-**Card helper (switched off since 0.19).** In real fights it couldn't keep up (enchanting, picking with little time left). The code is still here; set `SHOW_CARDS = true` in `PanelService.java` to bring it back. With it on:
-- Your **hand** appears on the bottom screen. **Tap a card** to cast it, **hold** one to discard it.
+**Card helper** (🃏 Cards ✓/✕ in the header switches it on or off; remembered). With it on:
+- Your **hand** appears on the bottom screen. **Tap a card** to select it in the game, **hold** one to discard it.
 - **PASS / DRAW / FLEE** buttons.
-- When a card is chosen (on the panel or in the game) and the game asks for a target, a still picture of the battle appears: **tap who the spell is for**, or **◀ CARDS** to pick another card. Spells that need no target skip this. Then a small "Casting…" banner shows until your next turn.
+- The panel follows the game: when the game asks for a target, a live picture of the battle appears (**tap who the spell is for**, or **◀ CARDS** to go back to the hand); for an enchantment the hand stays up so you can tap the card to enchant. While spells play out, a small "Casting…" banner shows until your next turn.
+- Speed (0.20): during a battle the panel watches the screen about 15 times a second and shows a change once two frames agree (about 0.15 s). Outside battle it looks 2.5 times a second. Clicks take about 0.2 s and don't queue behind each other (W101Quick 2.5+; timings in `click.txt`, see the launcher README).
 
 ## How it works
 

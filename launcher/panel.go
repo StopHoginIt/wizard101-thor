@@ -16,6 +16,8 @@ package main
 //	w101 key <action>         -> presses the key(s) for a named action
 //	w101 click <x> <y> [r]    -> clicks at x,y (0..1 of the screen); "r" = right button
 //	w101 battle               -> "a battle is on" (sent every second or so; pauses stick turning)
+//	w101 explore              -> "the battle is over" (turning works again at once)
+//	w101 clicktune <name> <ms> -> live click timing: arrive, nudge, settle, hold, restore
 //	w101 stick <name> <value> -> live stick tuning: speed, deadzone, walk
 //
 // Only the named actions below are accepted, and the socket is bound to the
@@ -24,8 +26,11 @@ package main
 import (
 	"encoding/binary"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 )
@@ -159,24 +164,90 @@ func moveTo(x, y float64) {
 // clickAt clicks without taking the player's pointer: afterwards the pointer goes
 // back where it was. If that's over the battle hand (where a hovered card grows
 // and hides its neighbours), it waits just below the cards instead.
+// Click timing, in milliseconds. Defaults can be changed in click.txt next to the launcher
+// ("hold 100", one per line; re-read when the file changes) or live with "w101 clicktune <name> <ms>".
+//   arrive:  after moving onto the spot, before the hover nudge
+//   nudge:   pointer briefly 40 units off, so the game registers the hover
+//   settle:  back on the spot, before pressing
+//   hold:    button held down
+//   restore: wait before moving the pointer back (the game picks 3D targets from where the
+//            pointer is when it handles the release, which can be a few frames later)
+type clickTuning struct{ arrive, nudge, settle, hold, restore int }
+
+var (
+	clickMu       sync.Mutex
+	clickT        = clickTuning{arrive: 30, nudge: 20, settle: 40, hold: 100, restore: 300}
+	clickFileTime time.Time
+	restoreGen    int
+	homeX, homeY  float64
+	homeSet       bool
+)
+
+func loadClickTuning() {
+	path := filepath.Join(exeDir(), "click.txt")
+	st, err := os.Stat(path)
+	if err != nil || !st.ModTime().After(clickFileTime) {
+		return
+	}
+	clickFileTime = st.ModTime()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 2 {
+			if v, err := strconv.Atoi(f[1]); err == nil {
+				setClickValue(f[0], v)
+			}
+		}
+	}
+	logf("click: %+v", clickT)
+}
+
+func setClickValue(name string, ms int) {
+	if ms < 0 || ms > 2000 {
+		return
+	}
+	switch name {
+	case "arrive":
+		clickT.arrive = ms
+	case "nudge":
+		clickT.nudge = ms
+	case "settle":
+		clickT.settle = ms
+	case "hold":
+		clickT.hold = ms
+	case "restore":
+		clickT.restore = ms
+	}
+}
+
+func sleepMs(ms int) {
+	if ms > 0 {
+		time.Sleep(time.Duration(ms) * time.Millisecond)
+	}
+}
+
+// clickAt clicks at (x, y) as fractions of the screen. The pointer goes back to where it was a
+// little later, without holding up the next click: taps in a row (an enchantment, then the card
+// to enchant) go straight through, and the pointer returns to where it was before the first one.
 func clickAt(x, y float64, right bool) {
 	if x < 0 || x > 1 || y < 0 || y > 1 {
 		return
 	}
-	px, py, havePos := cursorFraction()
-	defer func() {
-		// Wizard101 picks 3D targets (players, enemies) from where the pointer is
-		// when it handles the release, which can be a few frames later during a
-		// slow frame. Give it time before moving the pointer back.
-		time.Sleep(350 * time.Millisecond)
-		switch {
-		case !havePos:
-		case py > 0.42 && py < 0.58:
-			moveTo(0.5, 0.80)
-		default:
-			moveTo(px, py)
+	clickMu.Lock()
+	loadClickTuning()
+	t := clickT
+	if !homeSet {
+		if px, py, ok := cursorFraction(); ok {
+			homeX, homeY, homeSet = px, py, true
 		}
-	}()
+	}
+	restoreGen++
+	gen := restoreGen
+	clickMu.Unlock()
+
 	ax, ay := int32(x*65535), int32(y*65535)
 	down, up := uint32(mouseLeftDown), uint32(mouseLeftUp)
 	if right {
@@ -184,14 +255,31 @@ func clickAt(x, y float64, right bool) {
 	}
 	// Arrive, nudge (so the game sees the pointer over the target), then click.
 	sendInputs(mouseInput(ax, ay, mouseMove|mouseAbsolute))
-	time.Sleep(60 * time.Millisecond)
-	sendInputs(mouseInput(ax+40, ay+40, mouseMove|mouseAbsolute))
-	time.Sleep(30 * time.Millisecond)
-	sendInputs(mouseInput(ax, ay, mouseMove|mouseAbsolute))
-	time.Sleep(90 * time.Millisecond)
+	sleepMs(t.arrive)
+	if t.nudge > 0 {
+		sendInputs(mouseInput(ax+40, ay+40, mouseMove|mouseAbsolute))
+		sleepMs(t.nudge)
+		sendInputs(mouseInput(ax, ay, mouseMove|mouseAbsolute))
+	}
+	sleepMs(t.settle)
 	sendInputs(mouseInput(ax, ay, down|mouseAbsolute))
-	time.Sleep(150 * time.Millisecond)
+	sleepMs(t.hold)
 	sendInputs(mouseInput(ax, ay, up|mouseAbsolute))
+
+	go func() {
+		sleepMs(t.restore)
+		clickMu.Lock()
+		defer clickMu.Unlock()
+		if gen != restoreGen || !homeSet {
+			return // another click came in; it will put the pointer back
+		}
+		homeSet = false
+		if homeY > 0.42 && homeY < 0.58 {
+			moveTo(0.5, 0.80) // don't leave it over the card row (a hovered card looks different)
+		} else {
+			moveTo(homeX, homeY)
+		}
+	}()
 }
 
 // runPanelBridge listens until done is closed. Input is handled one datagram
@@ -240,6 +328,15 @@ func runPanelBridge(done <-chan struct{}) {
 			// The panel saw the world HUD again: the battle is over, so turning works at once.
 			battleUntil.Store(0)
 			logf("panel: battle over (world HUD back)")
+		case "clicktune":
+			if len(f) == 4 {
+				if v, err := strconv.Atoi(f[3]); err == nil {
+					clickMu.Lock()
+					setClickValue(f[2], v)
+					logf("click: %+v", clickT)
+					clickMu.Unlock()
+				}
+			}
 		case "click":
 			if len(f) >= 4 {
 				x, e1 := strconv.ParseFloat(f[2], 64)
