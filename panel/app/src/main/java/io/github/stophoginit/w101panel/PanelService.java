@@ -66,7 +66,7 @@ public class PanelService extends Service {
     private Capture capture;
     private HandReader.Hand hand = new HandReader.Hand();
     private volatile boolean cardsOn = true;      // the card view (remembered; header toggle)
-    private volatile boolean wantTargetFrames;     // TARGET mode: stream small pictures of the battle
+    private volatile int pictureEveryMs;           // live battle picture: 0 = off, else ms between pictures
     private volatile int targetW = 960;
     private TextView cardsButton, battleHint;
     private FrameLayout targetFrame;
@@ -153,7 +153,8 @@ public class PanelService extends Service {
             Stats.read(f.full(), inBattle, st -> main.post(() -> onStats(st, inBattle, roundStart)));
         }
         Bitmap small = null;
-        if (wantTargetFrames && now - targetAt >= 120) {
+        int every = pictureEveryMs;
+        if (every > 0 && now - targetAt >= every) {
             targetAt = now;
             small = f.scaled(targetW);
         }
@@ -363,7 +364,6 @@ public class PanelService extends Service {
         // The live battle picture, shown under the cards only while the game wants a target, so
         // the cards never move (and an enchantment's card choice stays right there).
         targetFrame = targetPicture();
-        targetFrame.setVisibility(View.GONE);
         v.addView(targetFrame);
 
         LinearLayout buttons = new LinearLayout(ctx);
@@ -383,9 +383,10 @@ public class PanelService extends Service {
 
     private int targetImageWidth() { return Math.max(320, screenW - unit / 2); }
 
-    private static final String HINT_CARDS = "Tap a card to cast  ·  hold to discard";
+    private static final String HINT_CARDS = "Tap a card to cast  ·  swipe down to discard";
     private static final String HINT_TARGET = "Tap who the spell is for  ·  or tap another card";
     private static final String HINT_ENCHANT = "Tap the spell to enchant";
+    private static final String HINT_WAIT = "✦ Casting… ✦";
 
     /** The battle picture's size: what's left of the bottom screen under the cards and buttons. */
     private int[] pictureSize() {
@@ -414,11 +415,13 @@ public class PanelService extends Service {
             if (e.getAction() == MotionEvent.ACTION_UP) {
                 float nx = e.getX() / Math.max(1, iv.getWidth());
                 float ny = e.getY() / Math.max(1, iv.getHeight());
-                if (nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1) {
+                if (mode != Mode.WAIT && nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1) {
                     iv.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                     clickGame(new float[] {nx, ny}, false);
-                    castUntil = System.currentTimeMillis() + 600; // the game still shows targeting for a moment
-                    setMode(Mode.BATTLE);
+                    if (mode == Mode.TARGET) {
+                        castUntil = System.currentTimeMillis() + 600; // the game still shows targeting for a moment
+                        setMode(Mode.BATTLE);
+                    }
                 }
             }
             return true;
@@ -488,36 +491,44 @@ public class PanelService extends Service {
         img.setScaleType(ImageView.ScaleType.FIT_XY);
         cardImages[index] = img;
         f.addView(img);
-        final Runnable discard = () -> {
-            if (index >= hand.n) return;
-            f.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-            f.setTag("done");
-            clickGame(hand.cardPoint(index), true);
-            // The game takes a moment to re-deal; show the result straight away.
-            castUntil = System.currentTimeMillis() + 450;
-            lastRead = null;
-            render(hand.without(index), true);
-        };
+        final float[] downY = new float[1];
+        final float swipe = cardHeight() * 0.3f;
         f.setOnTouchListener((v, e) -> {
-            if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                v.setTag(null);
-                v.setScaleX(0.94f);
-                v.setScaleY(0.94f);
-                main.postDelayed(discard, 450);
-            } else if (e.getAction() == MotionEvent.ACTION_UP) {
-                main.removeCallbacks(discard);
-                v.setScaleX(1f);
-                v.setScaleY(1f);
-                if (v.getTag() == null && index < hand.n) {
-                    v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-                    // Select the card in the game. The panel follows what the game does next
-                    // (target picture, enchant choice, or the hand going away) as soon as it sees it.
-                    clickGame(hand.cardPoint(index), false);
-                }
-            } else if (e.getAction() == MotionEvent.ACTION_CANCEL) {
-                main.removeCallbacks(discard);
-                v.setScaleX(1f);
-                v.setScaleY(1f);
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downY[0] = e.getRawY();
+                    v.setTag(null);
+                    v.setScaleX(0.94f);
+                    v.setScaleY(0.94f);
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    // Swipe down = discard, as soon as the swipe is long enough.
+                    if (v.getTag() == null && e.getRawY() - downY[0] > swipe && index < hand.n) {
+                        v.setTag("done");
+                        v.setScaleX(1f);
+                        v.setScaleY(1f);
+                        v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                        clickGame(hand.cardPoint(index), true);
+                        // The game takes a moment to re-deal; show the result straight away.
+                        castUntil = System.currentTimeMillis() + 450;
+                        lastRead = null;
+                        render(hand.without(index), true);
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                    v.setScaleX(1f);
+                    v.setScaleY(1f);
+                    if (v.getTag() == null && index < hand.n && Math.abs(e.getRawY() - downY[0]) < swipe) {
+                        v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                        // Select it in the game; light it up here at once so the tap visibly lands.
+                        showSelected(index);
+                        clickGame(hand.cardPoint(index), false);
+                    }
+                    break;
+                case MotionEvent.ACTION_CANCEL:
+                    v.setScaleX(1f);
+                    v.setScaleY(1f);
+                    break;
             }
             return true;
         });
@@ -663,9 +674,27 @@ public class PanelService extends Service {
         if (battleOn && now - lastBattlePing > 1000) { Bridge.send("w101 battle"); lastBattlePing = now; }
     }
 
+    private final Runnable clearSel = this::clearSelected;
+
+    /** Gold outline on card i right after a tap, until the game answers (or 1.5 s). */
+    private void showSelected(int i) {
+        clearSelected();
+        android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+        g.setStroke(Math.max(5, unit / 16), Style.GOLD_LIGHT);
+        g.setCornerRadius(unit * 0.08f);
+        cardViews[i].setForeground(g);
+        main.removeCallbacks(clearSel);
+        main.postDelayed(clearSel, 1500);
+    }
+
+    private void clearSelected() {
+        for (FrameLayout c : cardViews) if (c != null) c.setForeground(null);
+    }
+
     /** Shows hand h on the bottom screen (the card views are reused; only pictures change). */
     private void render(HandReader.Hand h, boolean layout) {
         hand = h;
+        if (layout) clearSelected();
         shown = h;
         shownAt = System.currentTimeMillis();
         if (drawButton != null) drawButton.setAlpha(h.n < HandReader.MAX_HAND ? 1f : 0.45f);
@@ -726,21 +755,27 @@ public class PanelService extends Service {
     private void setMode(Mode m) {
         mode = m;
         explore.setVisibility(m == Mode.EXPLORE ? View.VISIBLE : View.GONE);
-        battle.setVisibility(m == Mode.BATTLE || m == Mode.TARGET ? View.VISIBLE : View.GONE);
-        targetFrame.setVisibility(m == Mode.TARGET ? View.VISIBLE : View.GONE);
-        waitBanner.setVisibility(m == Mode.WAIT ? View.VISIBLE : View.GONE);
-        title.setText(m == Mode.EXPLORE ? "✦ Spellbook ✦" : m == Mode.BATTLE ? "✦ Battle ✦"
-                : m == Mode.TARGET ? "✦ Target ✦" : "✦ Battle ✦");
-        wantTargetFrames = m == Mode.TARGET;
+        // One fixed layout for the whole battle (cards, live picture, buttons): only what's in it
+        // changes, so nothing jumps. Targeting lights up the picture; casting dims the cards.
+        battle.setVisibility(m == Mode.EXPLORE ? View.GONE : View.VISIBLE);
+        waitBanner.setVisibility(View.GONE);
+        cardRow.setAlpha(m == Mode.WAIT ? 0.35f : 1f);
+        targetFrame.setBackground(m == Mode.TARGET
+                ? Style.frame(Style.GOLD_LIGHT, Style.GOLD, unit * 0.08f, Math.max(5, unit / 14))
+                : Style.frame(0xFF000000, 0xFF000000, unit * 0.08f, Math.max(3, unit / 24)));
+        if (m == Mode.WAIT) battleHint.setText(HINT_WAIT);
+        title.setText(m == Mode.EXPLORE ? "✦ Spellbook ✦" : m == Mode.TARGET ? "✦ Target ✦" : "✦ Battle ✦");
+        pictureEveryMs = m == Mode.EXPLORE ? 0 : m == Mode.TARGET ? 120 : 250;
+        clearSelected();
         if (m == Mode.TARGET) {
             lastHandSeen = System.currentTimeMillis();
             if (capture != null) capture.poke(); // the last picture stays until a fresh one arrives
         }
     }
 
-    /** The live target picture (about 8 a second while the game wants a target). */
+    /** The live battle picture (4 a second, 8 while the game wants a target). */
     private void showFrame(Bitmap small) {
-        if (root == null || mode != Mode.TARGET) return;
+        if (root == null || mode == Mode.EXPLORE) return;
         targetImage.setImageBitmap(small);
     }
 
