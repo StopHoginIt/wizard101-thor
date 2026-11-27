@@ -25,6 +25,7 @@ public class PlayActivity extends Activity {
     private static final int REQ_CAPTURE = 1;
     static final String PREFS = "panel";
     static final String KEY_LINK = "game_link";
+    private static final String GAMENATIVE = "app.gamenative";
 
     static String savedLink(Context c) {
         return c.getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_LINK, null);
@@ -69,6 +70,12 @@ public class PlayActivity extends Activity {
     private void launchGame() {
         Intent game = new Intent(Intent.ACTION_VIEW, Uri.parse(savedLink(this).trim()))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        // Other GameNative builds (like an old W101 test build) answer the same
+        // link, which would bring up an "Open with" chooser: prefer the regular app.
+        try {
+            getPackageManager().getPackageInfo(GAMENATIVE, 0);
+            game.setPackage(GAMENATIVE);
+        } catch (android.content.pm.PackageManager.NameNotFoundException ignored) { }
         // The top screen is the Thor's main display; open the game there even
         // when W101 Play was tapped on the bottom screen.
         ActivityOptions opts = ActivityOptions.makeBasic().setLaunchDisplayId(Display.DEFAULT_DISPLAY);
