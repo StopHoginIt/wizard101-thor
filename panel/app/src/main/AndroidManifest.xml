@@ -22,6 +22,21 @@
             </intent-filter>
         </activity>
 
+        <!-- One tap: panel on the bottom screen, then Wizard101 in GameNative on the top. -->
+        <activity
+            android:name=".PlayActivity"
+            android:label="W101 Play"
+            android:icon="@android:drawable/ic_media_play"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity=".play"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".PanelService"
             android:foregroundServiceType="mediaProjection"

@@ -282,6 +282,8 @@ public class PanelService extends Service {
         title.setText("✦ Spellbook ✦");
         title.setBackground(Style.parchment(unit * 0.15f));
         title.setPadding(unit / 4, 0, unit / 4, 0);
+        // Long-press the title for setup (overlay permission, W101 Play's game link).
+        title.setOnLongClickListener(v -> { openSetup(); return true; });
         bar.addView(title, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, h));
 
         status = new TextView(ctx);
@@ -442,6 +444,17 @@ public class PanelService extends Service {
     }
 
     // ---------------------------------------------------------------- widgets
+
+    private void openSetup() {
+        Intent i = new Intent(this, MainActivity.class).putExtra("setup", true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(i, android.app.ActivityOptions.makeBasic()
+                    .setLaunchDisplayId(targetDisplay().getDisplayId()).toBundle());
+        } catch (RuntimeException e) {
+            try { startActivity(i); } catch (RuntimeException ignored) { }
+        }
+    }
 
     private TextView tileButton(String icon, String label, View.OnClickListener onClick) {
         TextView b = new TextView(ctx);

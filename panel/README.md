@@ -28,7 +28,8 @@ Screen capture has to happen on the Android side: inside Wine, GDI capture of th
 
 - Install `W101Panel.apk` from a release (or run `laptop\Install-Panel.cmd`).
 - Open **W101 Panel** once and allow *Display over other apps*.
-- Start Wizard101 in GameNative, then open **W101 Panel** and tap *Start now* on Android's screen-capture prompt (*Cancel* still gives you the shortcut tiles).
+- **One tap (0.25+):** the app adds a second icon, **W101 Play**. Set it up once: in GameNative open Wizard101's menu → *Copy launch link*, then in W101 Panel's setup tap *Paste launch link* (the link is kept in the app's own settings on the Thor, never in this repo). After that, W101 Play asks for screen capture, starts the panel on the bottom screen and opens Wizard101 in GameNative on the top screen. Long-press the panel's **✦ Spellbook ✦** title to get back to setup.
+- Or by hand: start Wizard101 in GameNative, then open **W101 Panel** and tap *Start now* on Android's screen-capture prompt (*Cancel* still gives you the shortcut tiles).
 - **▲ Hide** shrinks it to a small "▼ Spellbook" tab; opening the app again also brings it back. **Hold ✕** to remove it (or use *Stop* in its notification).
 - For the touchpad under the panel: GameNative container settings → Controller → *External Display Input* → *Hybrid*.
 
