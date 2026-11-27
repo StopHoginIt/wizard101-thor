@@ -137,3 +137,13 @@ MediaProjection mirrors the top screen into a surface the panel sizes itself. Si
 ## End of a battle
 
 The panel tells the launcher a battle is on (the stick then doesn't right-click, which would discard a card). The world HUD's spellbook button is hidden for the whole battle, so the panel ends battle mode after two sightings of it in a row (panel 0.15+, `w101 explore` in launcher 2.3+). Before that it waited up to 40 s after the last hand, which blocked turning after a fight.
+
+## Card helper: what a two-screen recording showed (2026-11-26, panel 0.21)
+
+Recorded both screens for 90 s with `screenrecord --display-id` while playing, then replayed the panel's hand reader over every frame in Python.
+
+- **A hovered card blinds the reader.** Wizard101 draws the card under the pointer (or a chosen enchantment) enlarged, which widens the row by 1.3 to 1.5 card pitches. The reader works the card count out from the deck box's left edge, so a hovered 7-card hand read as 8 (rejected: "no hand") and a hovered 6-card hand could read as 7 (wrong tap positions). A settled row measures n - 0.1 pitches; panel 0.22 treats a fractional part of 0.10-0.55 as "hovered" (n = round(raw - 1.3)), 0.75-1.05 as settled, anything else as mid-animation (ignored).
+- **Enchant and target prompts look alike to a simple check.** Both hint lines start at x 748 with about 200 px of white text: "non-grey spell to cast enchantment." vs "highlighted players to select target." Panel 0.22 compares the white-pixel profile of the line (41 columns of 10 px, x 740-1150, five rows) with templates from the recording; own-prompt frames score 20-25, others 200+. A hovered card's title can cover the line (reads as unknown; the panel keeps the last clear prompt).
+- **Round start delay** was about 0.9 s (cards settle on top at 80.3 s, panel at 81.1 s): two slow 0.4 s looks before switching to fast. 0.22 looks every 0.25 s outside battle and switches to fast on the first glimpse of cards.
+- **Black block frames** in the recording: single frames with a regular grid of black blocks, on both screens at the same moments, also outside battle. Probably the recorder/encoder under load rather than the game, but the user also reported black artifacts while clicking cards; unconfirmed.
+

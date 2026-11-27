@@ -24,11 +24,30 @@ final class HandReader {
     // while choosing a target it reads "(mouse) highlighted players to select target." from x 748.
     static final float HINT_Y = 427f, HINT_TARGET_MAX_LEFT = 775f;
 
+    // What the hint line asks for, told apart by the shape of its text: white pixels counted in
+    // 10 px columns from x 740 to 1150 over five rows (y 421..433), in reference pixels.
+    // Measured from a recording on the Thor (2026-11-26):
+    //   NORMAL  "(mouse) to Select, (mouse) to Discard."
+    //   ENCHANT "(mouse) non-grey spell to cast enchantment."
+    //   TARGET  "(mouse) highlighted players to select target."
+    // Same-prompt frames score about 20-25 against their own template, 200+ against the others.
+    static final int PROMPT_UNKNOWN = -1, PROMPT_NORMAL = 0, PROMPT_ENCHANT = 1, PROMPT_TARGET = 2;
+    private static final float[][] PROMPTS = {
+        {0f, 0f, 0f, 0f, 0f, 0f, 18f, 0f, 0f, 13f, 8f, 8f, 2f, 16f, 15f, 16f, 16f, 6f, 13f, 2f, 0f, 0f, 1f, 15f, 0f, 0f, 0f, 8f, 10f, 8f, 12f, 8f, 9f, 10f, 9f, 16f, 13f, 13f, 9f, 0f, 0f},
+        {4f, 14f, 0f, 0f, 17f, 8f, 17f, 8f, 4f, 15f, 10f, 8f, 8f, 9f, 0f, 9f, 15f, 13f, 16f, 2f, 1f, 12f, 11f, 0f, 6f, 12f, 6f, 9f, 2f, 5f, 12f, 11f, 9f, 14f, 16f, 9f, 14f, 11f, 10f, 12f, 10f},
+        {3f, 12f, 0f, 0f, 23f, 8f, 11f, 15f, 19f, 12f, 19f, 18f, 14f, 13f, 7f, 16f, 2f, 9f, 20f, 12f, 13f, 16f, 13f, 10f, 3f, 8f, 10f, 11f, 0f, 10f, 14f, 4f, 13f, 7f, 6f, 0f, 10f, 12f, 13f, 14f, 9f},
+    };
+    private static final int PROMPT_X0 = 740, PROMPT_X1 = 1150, PROMPT_BIN = 10;
+    private static final int[] PROMPT_ROWS = {421, 424, 427, 430, 433};
+
     static final class Hand {
         int n;              // 0 = not choosing spells
         float firstX;       // centre of card 0, reference px
         int left = -1;      // deck box left edge in screen px (to tell a settled layout from one still moving)
-        boolean targeting;  // a card is chosen and the game wants a target
+        boolean targeting;  // a card is chosen and the game wants a target (prompt == TARGET)
+        int prompt = PROMPT_UNKNOWN; // what the hint line asks for
+        boolean hover;      // a card is drawn enlarged (pointer on it, or a chosen enchantment)
+        boolean unsure;     // the row is mid-animation: ignore this reading
         Bitmap[] cards = new Bitmap[0];
 
         /** Card i's centre as fractions of the screen. */
@@ -88,17 +107,31 @@ final class HandReader {
     /** The last spellbook scores, in percent (for the panel's log). */
     static volatile int lastMaroonPct, lastGoldPct;
 
-    private static boolean targeting(Frame screen, float sx, float sy) {
-        int y = Math.round(HINT_Y * sy), first = -1, count = 0;
-        for (int x = Math.round(700 * sx); x < Math.round(1300 * sx); x++) {
-            int c = screen.argb(x, y);
-            int r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
-            if (r > 200 && g > 200 && b > 200) {
-                if (first < 0) first = x;
-                count++;
+    /** Which prompt the hint line shows, by the shape of its text (nearest template). */
+    private static int prompt(Frame screen, float sx, float sy) {
+        int bins = (PROMPT_X1 - PROMPT_X0) / PROMPT_BIN;
+        float[] v = new float[bins];
+        for (int k = 0; k < bins; k++) {
+            int x0 = Math.round((PROMPT_X0 + k * PROMPT_BIN) * sx), x1 = Math.round((PROMPT_X0 + (k + 1) * PROMPT_BIN) * sx);
+            int cnt = 0;
+            for (int yr : PROMPT_ROWS) {
+                int y = Math.round(yr * sy);
+                for (int x = x0; x < x1; x++) {
+                    int c = screen.argb(x, y);
+                    if (((c >> 16) & 0xFF) > 200 && ((c >> 8) & 0xFF) > 200 && (c & 0xFF) > 200) cnt++;
+                }
             }
+            v[k] = cnt / sx;
         }
-        return first >= 0 && first / sx < HINT_TARGET_MAX_LEFT && count / sx > 150;
+        int best = PROMPT_UNKNOWN;
+        float bestD = Float.MAX_VALUE, second = Float.MAX_VALUE;
+        for (int p = 0; p < PROMPTS.length; p++) {
+            float d = 0;
+            for (int k = 0; k < bins; k++) d += Math.abs(v[k] - PROMPTS[p][k]);
+            if (d < bestD) { second = bestD; bestD = d; best = p; } else if (d < second) second = d;
+        }
+        // Accept only a clear match (own prompt about 20-50, others 200+).
+        return bestD < 110 && bestD < 0.6f * second ? best : PROMPT_UNKNOWN;
     }
 
     /**
@@ -128,14 +161,33 @@ final class HandReader {
         }
         float leftRef = left / sx;
         float width = 2 * (ROW_CENTRE_X - leftRef);
-        int n = Math.round((width - DECK_TO_CARD - CARD_W) / CARD_PITCH) + 1;
-        if (n < 1 || n > MAX_HAND) return h;
+        // A settled row of n cards measures about n - 0.1 here. A hovered card is drawn enlarged
+        // and widens the row by 1.3 to 1.5 cards (measured), so the deck box sits further left.
+        float raw = (width - DECK_TO_CARD - CARD_W) / CARD_PITCH + 1;
+        float frac = raw - (float) Math.floor(raw);
+        int n;
+        if (frac >= 0.75f || frac <= 0.05f) {
+            n = Math.round(raw);
+        } else if (frac >= 0.1f && frac <= 0.55f) {
+            n = Math.round(raw - 1.3f);
+            h.hover = true;
+        } else {
+            h.unsure = true; // cards sliding in or out
+            return h;
+        }
+        if (n < 1 || n > MAX_HAND) { h.unsure = raw < MAX_HAND + 2.5f; return h; }
         h.n = n;
+        if (h.hover) {
+            // Report where the settled row would be, so layouts compare and taps land on cards.
+            leftRef = ROW_CENTRE_X - ((n - 1.1f) * CARD_PITCH + DECK_TO_CARD + CARD_W) / 2f;
+            left = Math.round(leftRef * sx);
+        }
         h.left = left;
-        h.targeting = targeting(screen, sx, sy);
+        h.prompt = prompt(screen, sx, sy);
+        h.targeting = h.prompt == PROMPT_TARGET;
         h.firstX = leftRef + DECK_TO_CARD + CARD_W / 2f;
         h.cards = new Bitmap[n];
-        if (!cards) return h;
+        if (!cards || h.hover) return h;
         int cw = Math.round(CARD_W * sx);
         int top = Math.round(CARD_TOP * sy);
         int ch = Math.round((CARD_BOTTOM - CARD_TOP) * sy);

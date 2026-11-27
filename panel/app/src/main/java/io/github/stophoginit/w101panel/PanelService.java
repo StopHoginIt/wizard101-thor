@@ -72,10 +72,12 @@ public class PanelService extends Service {
     private FrameLayout targetFrame;
     private volatile long lastClickAt;             // uptime of the last click sent to the game
     private HandReader.Hand lastPics;              // newest reading that carried card pictures
+    private long sawCardsAt;                       // last reading with cards, even an unsteady one
+    private int prompt = HandReader.PROMPT_NORMAL; // last prompt read clearly for this hand
     private final FrameLayout[] cardViews = new FrameLayout[HandReader.MAX_HAND];
     private final ImageView[] cardImages = new ImageView[HandReader.MAX_HAND];
     private static final long FAST_MS = 66;        // about 15 frames a second in battle
-    private static final long SLOW_MS = 400;
+    private static final long SLOW_MS = 250;
 
     // TARGET: after casting a card, the bottom screen shows the battle so you can tap who it's for.
     private enum Mode { EXPLORE, BATTLE, TARGET, WAIT }
@@ -106,7 +108,8 @@ public class PanelService extends Service {
 
     // Capture-thread state for the frame listener.
     private int cN = -1, cLeft = -1, cropNext;
-    private boolean cTarget, pendingCrop;
+    private boolean pendingCrop, provisional;
+    private long pendingSince;
     private long cropAt, statsAt, targetAt, handGoneSince = 1;
 
     /**
@@ -122,11 +125,19 @@ public class PanelService extends Service {
         long now = f.time;
         HandReader.Hand h = HandReader.read(f, false);
         final boolean book = h.n == 0 && HandReader.spellbookVisible(f);
-        boolean layoutChanged = h.n != cN || h.targeting != cTarget || Math.abs(h.left - cLeft) > 3;
-        cN = h.n; cLeft = h.left; cTarget = h.targeting;
-        if (layoutChanged) pendingCrop = true;
-        boolean clean = cardsOn && h.n > 0 && !h.targeting && now - lastClickAt >= 450;
-        if (clean && pendingCrop) { cropNext = 2; pendingCrop = false; }
+        boolean layoutChanged = !h.unsure && (h.n != cN || Math.abs(h.left - cLeft) > 3);
+        if (!h.unsure) { cN = h.n; cLeft = h.left; }
+        if (layoutChanged) { pendingCrop = true; pendingSince = now; }
+        // A clean frame: no card enlarged, the hint line shows the normal prompt, no recent click.
+        boolean clean = cardsOn && h.n > 0 && !h.hover && h.prompt == HandReader.PROMPT_NORMAL
+                && now - lastClickAt >= 450;
+        if (clean && (pendingCrop || provisional)) { cropNext = 2; pendingCrop = false; provisional = false; }
+        else if (pendingCrop && cardsOn && h.n > 0 && !h.hover && now - pendingSince > 1000) {
+            // Still no clean frame after a second (e.g. the game greys cards for an enchant
+            // choice): use this one for now and replace it as soon as a clean frame comes.
+            cropNext = 2; pendingCrop = false; provisional = true;
+            clean = true;
+        }
         if (clean && cropNext > 0) {
             h = HandReader.read(f, true);
             cropAt = now;
@@ -134,7 +145,7 @@ public class PanelService extends Service {
         }
         // A new round: cards back after being gone for a moment (pips change every round).
         boolean newRound = h.n > 0 && handGoneSince > 0 && now - handGoneSince >= 1500;
-        if (h.n > 0) handGoneSince = 0; else if (handGoneSince == 0) handGoneSince = now;
+        if (h.n > 0) handGoneSince = 0; else if (!h.unsure && handGoneSince == 0) handGoneSince = now;
         boolean inBattle = h.n > 0;
         if (newRound || now - statsAt >= (inBattle ? 1000 : 2000)) {
             statsAt = now;
@@ -374,6 +385,7 @@ public class PanelService extends Service {
 
     private static final String HINT_CARDS = "Tap a card to cast  ·  hold to discard";
     private static final String HINT_TARGET = "Tap who the spell is for  ·  or tap another card";
+    private static final String HINT_ENCHANT = "Tap the spell to enchant";
 
     /** The battle picture's size: what's left of the bottom screen under the cards and buttons. */
     private int[] pictureSize() {
@@ -545,13 +557,18 @@ public class PanelService extends Service {
     private void updateInterval() {
         if (capture == null) return;
         long now = System.currentTimeMillis();
-        boolean battleOn = mode != Mode.EXPLORE
+        boolean battleOn = mode != Mode.EXPLORE || now - sawCardsAt < 3000
                 || (lastHandSeen > 0 && now - lastHandSeen < TARGET_TIMEOUT_MS && bookPolls == 0);
         capture.setInterval(cardsOn && !collapsed && battleOn ? FAST_MS : SLOW_MS);
     }
 
     private void showHand(HandReader.Hand h, boolean book) {
         if (root == null) return;
+        if (h.unsure) return; // the row is sliding: no information either way
+        if (h.n > 0) {
+            if (System.currentTimeMillis() - sawCardsAt > 3000 && capture != null) capture.poke();
+            sawCardsAt = System.currentTimeMillis();
+        }
         if (!cardsOn || collapsed) trackBattle(h, book);
         else showHandCards(h, book);
         updateInterval();
@@ -575,9 +592,7 @@ public class PanelService extends Service {
             if (mode != Mode.EXPLORE) setMode(Mode.EXPLORE);
             return;
         }
-        boolean stable = lastRead != null && lastRead.n == h.n && lastRead.targeting == h.targeting
-                && (h.n == 0 || Math.abs(lastRead.left - h.left) <= 3);
-        HandReader.Hand prev = lastRead;
+        boolean stable = lastRead != null && sameLayout(lastRead, h);
         lastRead = h;
         if (hasPictures(h)) lastPics = h;
         if (!stable) return;
@@ -594,8 +609,14 @@ public class PanelService extends Service {
             noHandSince = 0;
             lastHandSeen = now;
             // The cards stay put; the battle picture shows under them while the game wants a target.
-            Mode want = h.targeting ? Mode.TARGET : Mode.BATTLE;
+            // The prompt reads "unknown" while an enlarged card covers it: keep the last one.
+            boolean newHand = shown == null || !sameLayout(shown, h);
+            if (h.prompt != HandReader.PROMPT_UNKNOWN) prompt = h.prompt;
+            else if (newHand && !h.hover) prompt = HandReader.PROMPT_NORMAL;
+            Mode want = prompt == HandReader.PROMPT_TARGET ? Mode.TARGET : Mode.BATTLE;
             if (mode != want) setMode(want);
+            battleHint.setText(prompt == HandReader.PROMPT_TARGET ? HINT_TARGET
+                    : prompt == HandReader.PROMPT_ENCHANT ? HINT_ENCHANT : HINT_CARDS);
             boolean layout = shown == null || !sameLayout(shown, h);
             if (layout && hasPictures(h)) render(h, true);           // a new hand, with clean pictures
             else if (!layout && hasPictures(h) && h.cards != shown.cards) render(h, false);
@@ -634,7 +655,7 @@ public class PanelService extends Service {
             updateStatus();
             return;
         }
-        boolean stable = lastRead != null && lastRead.n == h.n && (h.n == 0 || Math.abs(lastRead.left - h.left) <= 3);
+        boolean stable = lastRead != null && sameLayout(lastRead, h);
         lastRead = h;
         if (!stable) return;
         if (h.n > 0) { lastHandSeen = now; hand = h; }
@@ -707,15 +728,13 @@ public class PanelService extends Service {
         explore.setVisibility(m == Mode.EXPLORE ? View.VISIBLE : View.GONE);
         battle.setVisibility(m == Mode.BATTLE || m == Mode.TARGET ? View.VISIBLE : View.GONE);
         targetFrame.setVisibility(m == Mode.TARGET ? View.VISIBLE : View.GONE);
-        battleHint.setText(m == Mode.TARGET ? HINT_TARGET : HINT_CARDS);
         waitBanner.setVisibility(m == Mode.WAIT ? View.VISIBLE : View.GONE);
         title.setText(m == Mode.EXPLORE ? "✦ Spellbook ✦" : m == Mode.BATTLE ? "✦ Battle ✦"
                 : m == Mode.TARGET ? "✦ Target ✦" : "✦ Battle ✦");
         wantTargetFrames = m == Mode.TARGET;
         if (m == Mode.TARGET) {
             lastHandSeen = System.currentTimeMillis();
-            targetImage.setImageDrawable(null);
-            if (capture != null) capture.poke();
+            if (capture != null) capture.poke(); // the last picture stays until a fresh one arrives
         }
     }
 

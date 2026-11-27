@@ -10,8 +10,8 @@ android {
         applicationId 'io.github.stophoginit.w101panel'
         minSdk 30
         targetSdk 33
-        versionCode 21
-        versionName '0.21'
+        versionCode 22
+        versionName '0.22'
     }
 
     // A fixed key so a new build installs over an older one. It only identifies
