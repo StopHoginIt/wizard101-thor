@@ -8,7 +8,7 @@ A small Android app that turns the AYN Thor's **bottom screen** into a Wizard101
 
 **Battles:** the panel notices them (and tells W101Quick, so the left stick never right-clicks and discards a card), shows your pips in the top bar, and keeps watching even while folded away with ▲ Hide.
 
-**Card helper** (🃏 Cards ✓/✕ in the header switches it on or off; remembered). With it on:
+**Card helper** (off by default since 0.24; 🃏 Cards ✓/✕ in the header switches it on, remembered). Even rebuilt for speed (0.20-0.23) it trails the game a little, which felt clunky in real fights, so battles normally keep the tiles. With it on:
 - Your **hand** appears on the bottom screen. **Tap a card** to select it in the game (it lights up gold at once), **swipe a card down** to discard it.
 - **PASS / DRAW / FLEE** buttons.
 - During a battle the layout stays put: cards, a small live picture of the battle, PASS / DRAW / FLEE. The panel follows the game by reading its hint line: when the game asks for a target, the battle picture lights up (tap who the spell is for); while spells play out the cards dim; for an enchantment the hint changes to "Tap the spell to enchant" and the cards stay as they are. A hovered (enlarged) card no longer hides the hand.

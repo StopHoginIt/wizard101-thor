@@ -65,7 +65,7 @@ public class PanelService extends Service {
 
     private Capture capture;
     private HandReader.Hand hand = new HandReader.Hand();
-    private volatile boolean cardsOn = true;      // the card view (remembered; header toggle)
+    private volatile boolean cardsOn = false;      // the card view (remembered; header toggle)
     private volatile int pictureEveryMs;           // live battle picture: 0 = off, else ms between pictures
     private volatile int targetW = 960;
     private TextView cardsButton, battleHint;
@@ -227,7 +227,9 @@ public class PanelService extends Service {
         DisplayMetrics dmx = ctx.getResources().getDisplayMetrics();
         screenW = dmx.widthPixels;
         unit = Math.max(88, Math.min(dmx.widthPixels, dmx.heightPixels) / 9);
-        cardsOn = getSharedPreferences("panel", MODE_PRIVATE).getBoolean("cards", true);
+        // Off by default since 0.24 (the card copy always trails the game a little); the header
+        // toggle turns it on and is remembered. A new key, so earlier "on" choices reset to off once.
+        cardsOn = getSharedPreferences("panel", MODE_PRIVATE).getBoolean("cards_v2", false);
 
         root = new LinearLayout(ctx);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -553,7 +555,7 @@ public class PanelService extends Service {
 
     private void setCardsOn(boolean on) {
         cardsOn = on;
-        getSharedPreferences("panel", MODE_PRIVATE).edit().putBoolean("cards", on).apply();
+        getSharedPreferences("panel", MODE_PRIVATE).edit().putBoolean("cards_v2", on).apply();
         updateCardsButton();
         if (!on && mode != Mode.EXPLORE) setMode(Mode.EXPLORE);
         lastRead = null;
