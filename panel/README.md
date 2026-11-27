@@ -11,8 +11,9 @@ A small Android app that turns the AYN Thor's **bottom screen** into a Wizard101
 **Card helper** (🃏 Cards ✓/✕ in the header switches it on or off; remembered). With it on:
 - Your **hand** appears on the bottom screen. **Tap a card** to select it in the game, **hold** one to discard it.
 - **PASS / DRAW / FLEE** buttons.
-- The panel follows the game: when the game asks for a target, a live picture of the battle appears (**tap who the spell is for**, or **◀ CARDS** to go back to the hand); for an enchantment the hand stays up so you can tap the card to enchant. While spells play out, a small "Casting…" banner shows until your next turn.
-- Speed (0.20): during a battle the panel watches the screen about 15 times a second and shows a change once two frames agree (about 0.15 s). Outside battle it looks 2.5 times a second. Clicks take about 0.2 s and don't queue behind each other (W101Quick 2.5+; timings in `click.txt`, see the launcher README).
+- The panel follows the game: when the game asks for a target, a live picture of the battle appears **under the cards** (tap who the spell is for). The cards never move, so for an enchantment you just tap the card to enchant. While spells play out, a small "Casting…" banner shows until your next turn.
+- Card pictures are taken only from clean frames: when the hand changed, not while the game is waiting for a target or enchant choice, and not right after a click (a hovered card is drawn enlarged).
+- Speed (0.20+): during a battle the panel watches the screen about 15 times a second and shows a change once two frames agree (about 0.15 s). Outside battle it looks 2.5 times a second. Clicks take about 0.2 s and don't queue behind each other (W101Quick 2.5+; timings in `click.txt`, see the launcher README).
 
 ## How it works
 
